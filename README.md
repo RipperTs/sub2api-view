@@ -49,6 +49,12 @@ docker run --rm -p 8000:8000 \
   sub2api-view
 ```
 
+使用 Docker Compose：
+
+```bash
+docker compose up -d
+```
+
 ## 目录结构
 
 ```text
