@@ -62,7 +62,19 @@ function formatPercent(value) {
   if (value === undefined || value === null || value === "") {
     return "-";
   }
-  return `${Number(value).toFixed(0)}%`;
+  const numberValue = Number(value);
+  if (Number.isNaN(numberValue)) {
+    return "-";
+  }
+  return `${numberValue.toFixed(0)}%`;
+}
+
+function normalizePercent(value) {
+  const numberValue = Number(value);
+  if (Number.isNaN(numberValue)) {
+    return 0;
+  }
+  return Math.min(100, Math.max(0, numberValue));
 }
 
 function formatBool(value) {
@@ -184,8 +196,10 @@ function renderAccounts(accounts) {
       const tempReason = getValue(account, ["temp_unschedulable_reason"], "");
       const sessionStatus = getValue(account, ["session_window_status"]);
       const codex5hPercent = formatPercent(getValue(account, ["extra.codex_5h_used_percent"], ""));
+      const codex5hValue = normalizePercent(getValue(account, ["extra.codex_5h_used_percent"], ""));
       const codex5hReset = formatDuration(getValue(account, ["extra.codex_5h_reset_after_seconds"], ""));
       const codex7dPercent = formatPercent(getValue(account, ["extra.codex_7d_used_percent"], ""));
+      const codex7dValue = normalizePercent(getValue(account, ["extra.codex_7d_used_percent"], ""));
       const codex7dReset = formatDuration(getValue(account, ["extra.codex_7d_reset_after_seconds"], ""));
       const updatedAt = formatDate(getValue(account, ["updated_at", "update_time"], ""));
       const createdAt = formatDate(getValue(account, ["created_at"], ""));
@@ -210,8 +224,8 @@ function renderAccounts(accounts) {
             ${renderMetric("优先级", priority)}
             ${renderMetric("倍率", rateMultiplier)}
             ${renderMetric("会话窗口", sessionStatus)}
-            ${renderMetric("Codex 5h", `${codex5hPercent} · ${codex5hReset}`)}
-            ${renderMetric("Codex 7d", `${codex7dPercent} · ${codex7dReset}`)}
+            ${renderProgressMetric("Codex 5h", codex5hValue, `${codex5hPercent} · ${codex5hReset}`)}
+            ${renderProgressMetric("Codex 7d", codex7dValue, `${codex7dPercent} · ${codex7dReset}`)}
             ${renderMetric("过期时间", expiresAt)}
             ${renderMetric("过期自动暂停", autoPause)}
             ${renderMetric("最后使用", lastUsedAt)}
@@ -238,6 +252,18 @@ function renderMetric(label, value) {
     <div class="metric">
       <span>${escapeHtml(label)}</span>
       <strong>${escapeHtml(value)}</strong>
+    </div>
+  `;
+}
+
+function renderProgressMetric(label, percent, text) {
+  return `
+    <div class="metric progress-metric">
+      <span>${escapeHtml(label)}</span>
+      <div class="progress-track">
+        <div class="progress-fill" style="width: ${percent}%"></div>
+      </div>
+      <strong>${escapeHtml(text)}</strong>
     </div>
   `;
 }

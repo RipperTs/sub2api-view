@@ -1,8 +1,8 @@
 :root {
   color-scheme: light;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  color: #1f2937;
-  background: #f7f8fa;
+  color: #111827;
+  background: #f8fafc;
 }
 
 * {
@@ -11,16 +11,18 @@
 
 body {
   margin: 0;
+  background: #f8fafc;
 }
 
 .page {
   min-height: 100vh;
-  padding: 32px;
+  padding: 24px;
 }
 
 .accounts-page {
-  max-width: 1280px;
+  max-width: 1440px;
   margin: 0 auto;
+  padding: 0;
 }
 
 .page-header {
@@ -105,42 +107,43 @@ select {
 
 .status-line {
   min-height: 22px;
-  margin-bottom: 10px;
-  color: #6b7280;
-  font-size: 14px;
+  margin: 0 24px 10px;
+  color: #7b8494;
+  font-size: 13px;
 }
 
 .account-cards {
   display: grid;
-  gap: 14px;
+  gap: 10px;
 }
 
 .account-card {
-  border: 1px solid #e5e7eb;
+  border: 1px solid #edf0f4;
   border-radius: 8px;
-  padding: 18px;
+  padding: 28px 36px;
   background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
 .account-main {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto;
-  gap: 16px;
-  align-items: start;
-  margin-bottom: 16px;
+  grid-template-columns: minmax(260px, 1.1fr) auto;
+  gap: 24px;
+  align-items: center;
+  margin-bottom: 18px;
 }
 
 .account-name {
-  color: #111827;
-  font-size: 22px;
+  color: #151b2a;
+  font-size: 24px;
   font-weight: 800;
   line-height: 1.25;
   word-break: break-word;
 }
 
 .account-sub {
-  margin-top: 6px;
-  color: #6b7280;
+  margin-top: 8px;
+  color: #7b8494;
   font-size: 13px;
 }
 
@@ -154,83 +157,106 @@ select {
 .badge {
   display: inline-flex;
   align-items: center;
-  min-height: 24px;
+  min-height: 32px;
   border-radius: 999px;
-  padding: 0 10px;
-  background: #eef2ff;
-  color: #3730a3;
-  font-size: 12px;
+  padding: 0 18px;
+  background: #eef2f7;
+  color: #647084;
+  font-size: 16px;
   font-weight: 700;
 }
 
 .badge.success {
-  background: #d1fae5;
-  color: #047857;
+  background: #c9f7df;
+  color: #067a4f;
 }
 
 .badge.warning {
-  background: #fef3c7;
-  color: #92400e;
+  background: #fff0c2;
+  color: #9a6500;
 }
 
 .badge.muted {
-  background: #f3f4f6;
-  color: #4b5563;
+  background: #f0f2f5;
+  color: #697386;
 }
 
 .account-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px 10px;
 }
 
 .metric {
   min-width: 0;
-  border-radius: 8px;
-  padding: 10px 12px;
-  background: #f9fafb;
+  border-radius: 7px;
+  padding: 8px 12px;
+  background: #f1f3f7;
 }
 
 .metric span {
   display: block;
-  margin-bottom: 6px;
-  color: #6b7280;
-  font-size: 12px;
-  font-weight: 700;
+  margin-bottom: 5px;
+  color: #98a2b3;
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .metric strong {
   display: block;
-  color: #111827;
+  color: #344054;
   font-size: 14px;
+  font-weight: 700;
   line-height: 1.35;
   word-break: break-word;
+}
+
+.progress-metric strong {
+  margin-top: 7px;
+}
+
+.progress-track {
+  width: 100%;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #d9dde6;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: #34d399;
 }
 
 .account-alerts {
   display: grid;
   gap: 8px;
   margin-top: 14px;
-  border-radius: 8px;
+  border-radius: 7px;
   padding: 12px;
-  background: #fef2f2;
-  color: #b91c1c;
+  background: #fff1f1;
+  color: #b42318;
   font-size: 14px;
   word-break: break-word;
 }
 
 .empty-state {
-  border: 1px dashed #d1d5db;
+  border: 1px dashed #d6dbe3;
   border-radius: 8px;
   padding: 32px;
-  color: #6b7280;
+  color: #7b8494;
   background: #fff;
   text-align: center;
 }
 
 @media (max-width: 900px) {
   .page {
-    padding: 20px;
+    padding: 16px;
+  }
+
+  .status-line {
+    margin: 0 16px 10px;
   }
 
   .page-header {
@@ -246,6 +272,14 @@ select {
     grid-template-columns: 1fr;
   }
 
+  .account-card {
+    padding: 22px 18px;
+  }
+
+  .account-name {
+    font-size: 20px;
+  }
+
   .badge-row {
     justify-content: flex-start;
   }
@@ -257,6 +291,6 @@ select {
 
 @media (min-width: 901px) and (max-width: 1180px) {
   .account-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
