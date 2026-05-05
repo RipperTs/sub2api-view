@@ -13,6 +13,9 @@ class Sub2ApiClient:
     async def list_accounts(self, params: dict[str, Any]) -> dict[str, Any]:
         return await self._request("GET", "/api/v1/admin/accounts", params=params)
 
+    async def get_account_usage(self, account_id: int) -> dict[str, Any]:
+        return await self._request("GET", f"/api/v1/admin/accounts/{account_id}/usage")
+
     async def _request(
         self,
         method: str,

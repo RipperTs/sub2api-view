@@ -46,6 +46,11 @@ async def list_accounts(
     return sanitize_accounts_payload(payload)
 
 
+@router.get("/accounts/{account_id}/usage")
+async def get_account_usage(account_id: int):
+    return await Sub2ApiClient().get_account_usage(account_id)
+
+
 def sanitize_accounts_payload(payload: dict[str, Any]) -> dict[str, Any]:
     safe_payload = deepcopy(payload)
     data = safe_payload.get("data") if isinstance(safe_payload.get("data"), dict) else safe_payload

@@ -69,6 +69,29 @@ function formatPercent(value) {
   return `${numberValue.toFixed(0)}%`;
 }
 
+function formatCompactNumber(value, suffix = "") {
+  const numberValue = Number(value);
+  if (Number.isNaN(numberValue)) {
+    return "-";
+  }
+
+  if (numberValue >= 1_000_000) {
+    return `${(numberValue / 1_000_000).toFixed(1)}M${suffix}`;
+  }
+  if (numberValue >= 1_000) {
+    return `${(numberValue / 1_000).toFixed(1)}K${suffix}`;
+  }
+  return `${numberValue.toFixed(0)}${suffix}`;
+}
+
+function formatMoney(value) {
+  const numberValue = Number(value);
+  if (Number.isNaN(numberValue)) {
+    return "$-";
+  }
+  return `$${numberValue.toFixed(2)}`;
+}
+
 function normalizePercent(value) {
   const numberValue = Number(value);
   if (Number.isNaN(numberValue)) {
@@ -177,7 +200,6 @@ function renderAccounts(accounts) {
     .map((account) => {
       const id = getValue(account, ["id", "account_id"]);
       const name = getValue(account, ["name", "account_name", "extra.email", "email"]);
-      const notes = getValue(account, ["notes"]);
       const platform = getValue(account, ["platform"]);
       const type = getValue(account, ["type", "account_type"]);
       const status = getValue(account, ["status"]);
@@ -201,38 +223,59 @@ function renderAccounts(accounts) {
       const codex7dPercent = formatPercent(getValue(account, ["extra.codex_7d_used_percent"], ""));
       const codex7dValue = normalizePercent(getValue(account, ["extra.codex_7d_used_percent"], ""));
       const codex7dReset = formatDuration(getValue(account, ["extra.codex_7d_reset_after_seconds"], ""));
+      const fiveHourStats = getValue(account, ["usage.five_hour.window_stats"], {});
+      const sevenDayStats = getValue(account, ["usage.seven_day.window_stats"], {});
       const updatedAt = formatDate(getValue(account, ["updated_at", "update_time"], ""));
       const createdAt = formatDate(getValue(account, ["created_at"], ""));
 
       return `
         <article class="account-card">
-          <div class="account-main">
-            <div>
+          <div class="account-layout">
+            <div class="account-main">
               <div class="account-name">${escapeHtml(name)}</div>
-              <div class="account-sub">ID ${escapeHtml(id)} · ${escapeHtml(platform)} / ${escapeHtml(type)}</div>
+              <div class="account-sub">
+                ID ${escapeHtml(id)} · ${escapeHtml(platform)} / ${escapeHtml(type)}
+              </div>
+              <div class="badge-row">
+                <span class="badge ${status === "active" ? "success" : "muted"}">${escapeHtml(status)}</span>
+                <span class="badge ${schedulable ? "success" : "warning"}">${schedulable ? "可调度" : "不可调度"}</span>
+              </div>
             </div>
-            <div class="badge-row">
-              <span class="badge ${status === "active" ? "success" : "muted"}">${escapeHtml(status)}</span>
-              <span class="badge ${schedulable ? "success" : "warning"}">${schedulable ? "可调度" : "不可调度"}</span>
+
+            <div class="usage-list">
+              ${renderUsageRow(
+                "5h",
+                codex5hValue,
+                codex5hPercent,
+                codex5hReset,
+                fiveHourStats,
+              )}
+              ${renderUsageRow(
+                "7d",
+                codex7dValue,
+                codex7dPercent,
+                codex7dReset,
+                sevenDayStats,
+              )}
+            </div>
+
+            <div class="account-key-info">
+              ${renderKeyInfo("过期时间", expiresAt)}
+              ${renderKeyInfo("更新时间", updatedAt)}
+              ${renderKeyInfo("最后使用", lastUsedAt)}
             </div>
           </div>
 
-          <div class="account-grid">
-            ${renderMetric("备注", notes)}
-            ${renderMetric("分组", groups)}
-            ${renderMetric("并发", `${currentConcurrency} / ${concurrency}`)}
-            ${renderMetric("优先级", priority)}
-            ${renderMetric("倍率", rateMultiplier)}
-            ${renderMetric("会话窗口", sessionStatus)}
-            ${renderProgressMetric("Codex 5h", codex5hValue, `${codex5hPercent} · ${codex5hReset}`)}
-            ${renderProgressMetric("Codex 7d", codex7dValue, `${codex7dPercent} · ${codex7dReset}`)}
-            ${renderMetric("过期时间", expiresAt)}
-            ${renderMetric("过期自动暂停", autoPause)}
-            ${renderMetric("最后使用", lastUsedAt)}
-            ${renderMetric("限流时间", rateLimitedAt)}
-            ${renderMetric("限流恢复", rateLimitResetAt)}
-            ${renderMetric("创建时间", createdAt)}
-            ${renderMetric("更新时间", updatedAt)}
+          <div class="account-meta">
+            ${renderMetaItem("分组", groups)}
+            ${renderMetaItem("并发", `${currentConcurrency} / ${concurrency}`)}
+            ${renderMetaItem("优先级", priority)}
+            ${renderMetaItem("倍率", rateMultiplier)}
+            ${renderMetaItem("会话", sessionStatus)}
+            ${renderMetaItem("自动暂停", autoPause)}
+            ${renderMetaItem("限流", rateLimitedAt)}
+            ${renderMetaItem("恢复", rateLimitResetAt)}
+            ${renderMetaItem("创建", createdAt)}
           </div>
 
           ${lastError || tempReason ? `
@@ -247,23 +290,36 @@ function renderAccounts(accounts) {
     .join("");
 }
 
-function renderMetric(label, value) {
+function renderUsageRow(label, percent, percentText, resetText, stats) {
   return `
-    <div class="metric">
-      <span>${escapeHtml(label)}</span>
-      <strong>${escapeHtml(value)}</strong>
+    <div class="usage-row">
+      <div class="usage-window">${escapeHtml(label)}</div>
+      <div class="usage-progress">
+        <div class="progress-track">
+          <div class="progress-fill" style="width: ${percent}%"></div>
+        </div>
+        <span>${escapeHtml(percentText)} · ${escapeHtml(resetText)}</span>
+      </div>
+      <div class="usage-stats">
+        <span>${escapeHtml(formatCompactNumber(stats.requests, " req"))}</span>
+        <span>${escapeHtml(formatCompactNumber(stats.tokens))}</span>
+        <span>${escapeHtml(formatMoney(stats.standard_cost))}</span>
+      </div>
     </div>
   `;
 }
 
-function renderProgressMetric(label, percent, text) {
+function renderMetaItem(label, value) {
   return `
-    <div class="metric progress-metric">
+    <span><b>${escapeHtml(label)}</b> ${escapeHtml(value)}</span>
+  `;
+}
+
+function renderKeyInfo(label, value) {
+  return `
+    <div>
       <span>${escapeHtml(label)}</span>
-      <div class="progress-track">
-        <div class="progress-fill" style="width: ${percent}%"></div>
-      </div>
-      <strong>${escapeHtml(text)}</strong>
+      <strong>${escapeHtml(value)}</strong>
     </div>
   `;
 }
@@ -287,12 +343,45 @@ async function loadAccounts() {
     const { items, total } = normalizePayload(payload);
     state.total = total;
 
-    renderAccounts(items);
+    const accounts = await enrichAccountsWithUsage(items);
+    renderAccounts(accounts);
     statusLine.textContent = "账号信息已更新";
   } catch (error) {
     accountsBody.innerHTML = '<div class="empty-state">加载失败</div>';
     statusLine.textContent = error.message;
   }
+}
+
+async function enrichAccountsWithUsage(accounts) {
+  const accessKey = state.filters.access_key;
+  if (!accessKey || !accounts.length) {
+    return accounts;
+  }
+
+  const results = await Promise.allSettled(
+    accounts.map(async (account) => {
+      const accountId = getValue(account, ["id", "account_id"], "");
+      if (!accountId) {
+        return account;
+      }
+
+      const params = new URLSearchParams({ access_key: accessKey });
+      const response = await fetch(`/api/accounts/${accountId}/usage?${params.toString()}`);
+      if (!response.ok) {
+        return account;
+      }
+
+      const payload = await response.json();
+      return {
+        ...account,
+        usage: payload.data || payload,
+      };
+    }),
+  );
+
+  return results.map((result, index) => (
+    result.status === "fulfilled" ? result.value : accounts[index]
+  ));
 }
 
 function escapeHtml(value) {
