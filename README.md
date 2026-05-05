@@ -16,6 +16,8 @@ uv sync
 APP_HOST=127.0.0.1
 APP_PORT=8000
 APP_RELOAD=true
+SUB2API_BASE_URL=http://127.0.0.1:8080
+SUB2API_ADMIN_KEY=your-admin-api-key
 ```
 
 ## 启动服务

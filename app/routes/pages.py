@@ -10,8 +10,19 @@ templates = Jinja2Templates(directory="app/templates")
 async def index(request: Request):
     return templates.TemplateResponse(
         request,
-        "index.html",
+        "accounts.html",
         {
-            "title": "sub2api-view",
+            "title": "账号信息",
+        },
+    )
+
+
+@router.get("/accounts", response_class=HTMLResponse)
+async def accounts(request: Request):
+    return templates.TemplateResponse(
+        request,
+        "accounts.html",
+        {
+            "title": "账号信息",
         },
     )
