@@ -1,10 +1,22 @@
-from typing import Annotated
+from copy import deepcopy
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Query
 
 from app.services.sub2api_client import Sub2ApiClient
 
 router = APIRouter(prefix="/api")
+
+SENSITIVE_ACCOUNT_KEYS = {
+    "credentials",
+    "proxy",
+    "access_token",
+    "refresh_token",
+    "id_token",
+    "api_key",
+    "secret",
+    "password",
+}
 
 
 @router.get("/accounts")
@@ -29,4 +41,28 @@ async def list_accounts(
     }
     clean_params = {key: value for key, value in params.items() if value not in (None, "")}
 
-    return await Sub2ApiClient().list_accounts(clean_params)
+    payload = await Sub2ApiClient().list_accounts(clean_params)
+    return sanitize_accounts_payload(payload)
+
+
+def sanitize_accounts_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    safe_payload = deepcopy(payload)
+    data = safe_payload.get("data") if isinstance(safe_payload.get("data"), dict) else safe_payload
+    items = data.get("items")
+
+    if not isinstance(items, list):
+        return safe_payload
+
+    data["items"] = [sanitize_account(item) for item in items]
+    return safe_payload
+
+
+def sanitize_account(account: Any) -> Any:
+    if not isinstance(account, dict):
+        return account
+
+    return {
+        key: value
+        for key, value in account.items()
+        if key not in SENSITIVE_ACCOUNT_KEYS
+    }

@@ -2,73 +2,10 @@
 
 {% block content %}
 <section class="accounts-page">
-  <header class="page-header">
-    <div>
-      <p class="eyebrow">Sub2API</p>
-      <h1>账号信息</h1>
-    </div>
-    <button class="button" id="refresh-button" type="button">刷新</button>
-  </header>
-
-  <form class="filters" id="account-filters">
-    <label>
-      平台
-      <input name="platform" placeholder="如 claude">
-    </label>
-    <label>
-      类型
-      <input name="type" placeholder="如 oauth">
-    </label>
-    <label>
-      状态
-      <select name="status">
-        <option value="">全部</option>
-        <option value="active">active</option>
-        <option value="inactive">inactive</option>
-        <option value="error">error</option>
-      </select>
-    </label>
-    <label>
-      分组
-      <input name="group" placeholder="group">
-    </label>
-    <label class="search-field">
-      关键词
-      <input name="search" placeholder="名称 / ID / 备注">
-    </label>
-    <button class="button primary" type="submit">查询</button>
-  </form>
-
   <div class="status-line" id="status-line">正在加载账号信息...</div>
 
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>名称</th>
-          <th>平台</th>
-          <th>类型</th>
-          <th>状态</th>
-          <th>分组</th>
-          <th>优先级</th>
-          <th>并发</th>
-          <th>最后错误</th>
-          <th>更新时间</th>
-        </tr>
-      </thead>
-      <tbody id="accounts-body">
-        <tr>
-          <td colspan="10">正在加载...</td>
-        </tr>
-      </tbody>
-    </table>
+  <div class="account-cards" id="accounts-body">
+    <div class="empty-state">正在加载...</div>
   </div>
-
-  <footer class="pagination">
-    <button class="button" id="prev-page" type="button">上一页</button>
-    <span id="page-info">第 1 页</span>
-    <button class="button" id="next-page" type="button">下一页</button>
-  </footer>
 </section>
 {% endblock %}

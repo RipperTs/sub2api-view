@@ -110,36 +110,45 @@ select {
   font-size: 14px;
 }
 
-.table-wrap {
-  overflow-x: auto;
+.account-cards {
+  display: grid;
+  gap: 14px;
+}
+
+.account-card {
   border: 1px solid #e5e7eb;
   border-radius: 8px;
+  padding: 18px;
   background: #fff;
 }
 
-table {
-  width: 100%;
-  min-width: 1040px;
-  border-collapse: collapse;
+.account-main {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  gap: 16px;
+  align-items: start;
+  margin-bottom: 16px;
 }
 
-th,
-td {
-  padding: 12px;
-  border-bottom: 1px solid #e5e7eb;
-  text-align: left;
-  font-size: 14px;
-  vertical-align: top;
+.account-name {
+  color: #111827;
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.25;
+  word-break: break-word;
 }
 
-th {
-  color: #374151;
-  background: #f9fafb;
-  font-weight: 700;
+.account-sub {
+  margin-top: 6px;
+  color: #6b7280;
+  font-size: 13px;
 }
 
-tr:last-child td {
-  border-bottom: 0;
+.badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .badge {
@@ -154,19 +163,69 @@ tr:last-child td {
   font-weight: 700;
 }
 
-.error-cell {
-  max-width: 260px;
-  color: #b91c1c;
+.badge.success {
+  background: #d1fae5;
+  color: #047857;
+}
+
+.badge.warning {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.badge.muted {
+  background: #f3f4f6;
+  color: #4b5563;
+}
+
+.account-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.metric {
+  min-width: 0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #f9fafb;
+}
+
+.metric span {
+  display: block;
+  margin-bottom: 6px;
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.metric strong {
+  display: block;
+  color: #111827;
+  font-size: 14px;
+  line-height: 1.35;
   word-break: break-word;
 }
 
-.pagination {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
-  margin-top: 16px;
-  color: #4b5563;
+.account-alerts {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 14px;
+  word-break: break-word;
+}
+
+.empty-state {
+  border: 1px dashed #d1d5db;
+  border-radius: 8px;
+  padding: 32px;
+  color: #6b7280;
+  background: #fff;
+  text-align: center;
 }
 
 @media (max-width: 900px) {
@@ -181,5 +240,23 @@ tr:last-child td {
 
   .filters {
     grid-template-columns: 1fr;
+  }
+
+  .account-main {
+    grid-template-columns: 1fr;
+  }
+
+  .badge-row {
+    justify-content: flex-start;
+  }
+
+  .account-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 901px) and (max-width: 1180px) {
+  .account-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
