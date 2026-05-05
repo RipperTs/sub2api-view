@@ -16,6 +16,7 @@ uv sync
 APP_HOST=127.0.0.1
 APP_PORT=8000
 APP_RELOAD=true
+VIEW_ACCESS_KEY=your-view-access-key
 SUB2API_BASE_URL=http://127.0.0.1:8080
 SUB2API_ADMIN_KEY=your-admin-api-key
 ```
@@ -29,7 +30,7 @@ uv run python main.py
 浏览器访问：
 
 ```text
-http://127.0.0.1:8000
+http://127.0.0.1:8000/accounts?access_key=your-view-access-key
 ```
 
 ## Docker
@@ -44,6 +45,7 @@ docker build -t sub2api-view .
 
 ```bash
 docker run --rm -p 8000:8000 \
+  -e VIEW_ACCESS_KEY=your-view-access-key \
   -e SUB2API_BASE_URL=http://host.docker.internal:8080 \
   -e SUB2API_ADMIN_KEY=your-admin-api-key \
   sub2api-view

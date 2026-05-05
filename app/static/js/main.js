@@ -9,7 +9,7 @@ const filtersForm = document.querySelector("#account-filters");
 const refreshButton = document.querySelector("#refresh-button");
 const statusLine = document.querySelector("#status-line");
 const accountsBody = document.querySelector("#accounts-body");
-const filterKeys = ["platform", "type", "status", "group", "search"];
+const filterKeys = ["access_key", "platform", "type", "status", "group", "search"];
 
 function getValue(account, keys, fallback = "-") {
   for (const key of keys) {

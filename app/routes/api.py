@@ -1,11 +1,12 @@
 from copy import deepcopy
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
+from app.core.security import verify_access_key
 from app.services.sub2api_client import Sub2ApiClient
 
-router = APIRouter(prefix="/api")
+router = APIRouter(prefix="/api", dependencies=[Depends(verify_access_key)])
 
 SENSITIVE_ACCOUNT_KEYS = {
     "credentials",
