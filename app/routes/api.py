@@ -1,4 +1,5 @@
 from copy import deepcopy
+import re
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
@@ -18,6 +19,8 @@ SENSITIVE_ACCOUNT_KEYS = {
     "secret",
     "password",
 }
+
+EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 @router.get("/accounts")
@@ -67,8 +70,41 @@ def sanitize_account(account: Any) -> Any:
     if not isinstance(account, dict):
         return account
 
-    return {
+    safe_account = {
         key: value
         for key, value in account.items()
         if key not in SENSITIVE_ACCOUNT_KEYS
     }
+
+    mask_account_email(safe_account)
+    return safe_account
+
+
+def mask_account_email(account: dict[str, Any]) -> None:
+    for key in ("name", "email"):
+        value = account.get(key)
+        if isinstance(value, str) and is_email(value):
+            account[key] = mask_email(value)
+
+    extra = account.get("extra")
+    if isinstance(extra, dict):
+        email = extra.get("email")
+        if isinstance(email, str) and is_email(email):
+            extra["email"] = mask_email(email)
+
+
+def is_email(value: str) -> bool:
+    return bool(EMAIL_PATTERN.match(value))
+
+
+def mask_email(email: str) -> str:
+    local, domain = email.split("@", 1)
+
+    if len(local) <= 1:
+        masked_local = "*"
+    elif len(local) <= 3:
+        masked_local = f"{local[0]}*"
+    else:
+        masked_local = f"{local[:3]}****{local[-2:]}"
+
+    return f"{masked_local}@{domain}"
