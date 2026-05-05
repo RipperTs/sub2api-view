@@ -32,6 +32,23 @@ uv run python main.py
 http://127.0.0.1:8000
 ```
 
+## Docker
+
+构建镜像：
+
+```bash
+docker build -t sub2api-view .
+```
+
+启动容器：
+
+```bash
+docker run --rm -p 8000:8000 \
+  -e SUB2API_BASE_URL=http://host.docker.internal:8080 \
+  -e SUB2API_ADMIN_KEY=your-admin-api-key \
+  sub2api-view
+```
+
 ## 目录结构
 
 ```text
