@@ -216,6 +216,7 @@ function renderAccounts(accounts) {
       const rateLimitedAt = formatDate(getValue(account, ["rate_limited_at"], ""));
       const rateLimitResetAt = formatDate(getValue(account, ["rate_limit_reset_at"], ""));
       const tempReason = getValue(account, ["temp_unschedulable_reason"], "");
+      const showTempReason = status !== "active" && tempReason;
       const sessionStatus = getValue(account, ["session_window_status"]);
       const codex5hPercent = formatPercent(getValue(account, ["extra.codex_5h_used_percent"], ""));
       const codex5hValue = normalizePercent(getValue(account, ["extra.codex_5h_used_percent"], ""));
@@ -278,10 +279,10 @@ function renderAccounts(accounts) {
             ${renderMetaItem("创建", createdAt)}
           </div>
 
-          ${lastError || tempReason ? `
+          ${lastError || showTempReason ? `
             <div class="account-alerts">
               ${lastError ? `<div><strong>错误：</strong>${escapeHtml(lastError)}</div>` : ""}
-              ${tempReason ? `<div><strong>不可调度原因：</strong>${escapeHtml(tempReason)}</div>` : ""}
+              ${showTempReason ? `<div><strong>不可调度原因：</strong>${escapeHtml(tempReason)}</div>` : ""}
             </div>
           ` : ""}
         </article>
