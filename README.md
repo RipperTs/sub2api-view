@@ -33,6 +33,20 @@ uv run python main.py
 http://127.0.0.1:8000/accounts?access_key=your-view-access-key
 ```
 
+## 自动重置订阅配额
+
+调用下面的接口检测所有 OpenAI OAuth 账号。如果账号的 7 天额度窗口已经重置，
+接口会自动重置该账号关联分组下所有活跃订阅的日、周、月配额：
+
+```bash
+curl -X POST \
+  "http://127.0.0.1:8000/api/subscriptions/auto-reset?access_key=your-view-access-key"
+```
+
+接口通过 `SUB2API_ADMIN_KEY` 调用 Sub2API 管理员 API。重复调用是安全的：已经在
+当前 7 天窗口内重置过的订阅会被跳过。响应中会返回检查数量、重置数量以及失败明细，
+单个账号或订阅失败不会中断其他数据的处理。
+
 ## Docker
 
 构建镜像：

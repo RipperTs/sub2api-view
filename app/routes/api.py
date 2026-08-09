@@ -1,11 +1,13 @@
-from copy import deepcopy
+import asyncio
 import re
+from copy import deepcopy
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.core.security import verify_access_key
 from app.services.sub2api_client import Sub2ApiClient
+from app.services.subscription_quota_reset import SubscriptionQuotaResetService
 
 router = APIRouter(prefix="/api", dependencies=[Depends(verify_access_key)])
 
@@ -21,6 +23,7 @@ SENSITIVE_ACCOUNT_KEYS = {
 }
 
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+AUTO_RESET_LOCK = asyncio.Lock()
 
 
 @router.get("/accounts")
@@ -52,6 +55,16 @@ async def list_accounts(
 @router.get("/accounts/{account_id}/usage")
 async def get_account_usage(account_id: int):
     return await Sub2ApiClient().get_account_usage(account_id)
+
+
+@router.post("/subscriptions/auto-reset")
+async def auto_reset_subscription_quotas():
+    if AUTO_RESET_LOCK.locked():
+        raise HTTPException(status_code=409, detail="自动重置检测正在执行")
+
+    async with AUTO_RESET_LOCK:
+        async with Sub2ApiClient() as client:
+            return await SubscriptionQuotaResetService(client).run()
 
 
 def sanitize_accounts_payload(payload: dict[str, Any]) -> dict[str, Any]:
