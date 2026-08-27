@@ -11,3 +11,4 @@ services:
       APP_RELOAD: false
       SUB2API_BASE_URL: http://host.docker.internal:8080
       SUB2API_ADMIN_KEY: your-admin-api-key
+      SUB2API_JWT_SECRET: your-sub2api-jwt-secret

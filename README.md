@@ -18,7 +18,10 @@ APP_PORT=8000
 APP_RELOAD=true
 SUB2API_BASE_URL=http://127.0.0.1:8080
 SUB2API_ADMIN_KEY=your-admin-api-key
+SUB2API_JWT_SECRET=your-sub2api-jwt-secret
 ```
+
+`SUB2API_JWT_SECRET` 必须与 Sub2API 服务使用的 `JWT_SECRET` 完全一致。
 
 ## 启动服务
 
@@ -65,6 +68,7 @@ docker build -t sub2api-view .
 docker run --rm -p 8000:8000 \
   -e SUB2API_BASE_URL=http://host.docker.internal:8080 \
   -e SUB2API_ADMIN_KEY=your-admin-api-key \
+  -e SUB2API_JWT_SECRET=your-sub2api-jwt-secret \
   sub2api-view
 ```
 
