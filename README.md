@@ -10,7 +10,7 @@
 - 仅展示用户有效订阅分组内的可调度账号
 - 展示账号用量、额度窗口、重置卡和分组等信息
 - 自动过滤账号凭据、令牌、代理等敏感字段，并对邮箱脱敏
-- 应用启动后自动执行订阅配额重置任务，默认间隔 180 秒
+- 应用启动后自动执行订阅配额重置任务，默认间隔 1800 秒
 - 支持本地运行、Docker 和 Docker Compose 部署
 - 支持通过 GitHub Actions 将版本镜像发布到阿里云镜像仓库
 
@@ -29,16 +29,17 @@
 
 ### 订阅配额自动重置
 
-应用启动时会立即执行一次检查。每次执行完成后等待 `AUTO_RESET_INTERVAL_SECONDS`，然后开始下一次检查，默认等待 180 秒。
+应用启动时会立即执行一次检查。每次执行完成后等待 `AUTO_RESET_INTERVAL_SECONDS`，然后开始下一次检查，默认等待 1800 秒（30 分钟）。
 
 一次检查的处理流程如下：
 
 1. 分页查询全部 `openai + oauth` 账号。
-2. 强制刷新每个账号的用量，读取 7 天窗口重置时间；刷新失败时尝试使用账号快照中的 `extra.codex_7d_reset_at`。
-3. 根据账号的 `group_ids` 建立分组与额度窗口的关系。
-4. 同一分组包含多个账号时，使用其中最新的窗口起点作为该分组的重置边界。
-5. 分页查询分组下的全部活跃订阅。
-6. 当订阅的 `weekly_window_start`（缺失时使用 `starts_at`）早于分组重置边界时，调用 Sub2API 重置订阅配额。
+2. 保存账号刷新前的 7 天额度快照，然后强制请求 OpenAI 获取最新额度。
+3. 使用刷新前后的窗口信息判断旧窗口是否到期；零使用率且剩余完整 7 天的未锚定窗口只更新展示，不单独触发订阅重置。
+4. 根据账号的 `group_ids` 建立分组与有效重置边界的关系。
+5. 同一分组包含多个账号时，使用其中最新的有效边界作为该分组的重置边界。
+6. 分页查询分组下的全部活跃订阅。
+7. 当订阅的 `weekly_window_start`（缺失时使用 `starts_at`）早于分组重置边界时，调用 Sub2API 重置订阅配额。
 
 订阅与账号之间没有直接绑定关系，二者通过分组关联。因此：
 
@@ -95,7 +96,7 @@ SUB2API_ADMIN_KEY=your-admin-api-key
 SUB2API_JWT_SECRET=your-sub2api-jwt-secret
 
 AUTO_RESET_ENABLED=true
-AUTO_RESET_INTERVAL_SECONDS=180
+AUTO_RESET_INTERVAL_SECONDS=1800
 ```
 
 `SUB2API_JWT_SECRET` 必须与 Sub2API 服务使用的 `JWT_SECRET` 完全一致，否则用户 Token 无法通过校验。
@@ -133,7 +134,7 @@ http://127.0.0.1:8000/?user_id=3&token=your-user-token
 | `SUB2API_ADMIN_KEY` | 是 | 无 | 调用 Sub2API 管理员 API 的密钥 |
 | `SUB2API_JWT_SECRET` | 是 | 无 | 用于校验 Sub2API 用户 JWT 的密钥 |
 | `AUTO_RESET_ENABLED` | 否 | `true` | 是否启用订阅配额自动重置任务 |
-| `AUTO_RESET_INTERVAL_SECONDS` | 否 | `180` | 每次任务执行完成后的等待秒数，必须是正整数 |
+| `AUTO_RESET_INTERVAL_SECONDS` | 否 | `1800` | 每次任务执行完成后的等待秒数，必须是正整数 |
 
 布尔配置支持 `1`、`true`、`yes`、`on`，不区分大小写；其他值按关闭处理。
 
@@ -212,7 +213,7 @@ docker run --rm \
   -e SUB2API_ADMIN_KEY=your-admin-api-key \
   -e SUB2API_JWT_SECRET=your-sub2api-jwt-secret \
   -e AUTO_RESET_ENABLED=true \
-  -e AUTO_RESET_INTERVAL_SECONDS=180 \
+  -e AUTO_RESET_INTERVAL_SECONDS=1800 \
   sub2api-view
 ```
 

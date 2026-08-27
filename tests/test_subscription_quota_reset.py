@@ -18,6 +18,7 @@ class FakeSub2ApiClient:
         self.subscriptions = subscriptions
         self.usage = usage
         self.usage_errors: set[int] = set()
+        self.usage_requests: list[tuple[int, bool]] = []
         self.reset_errors: set[int] = set()
         self.reset_attempts: list[int] = []
 
@@ -30,6 +31,7 @@ class FakeSub2ApiClient:
         *,
         force: bool = False,
     ) -> dict[str, Any]:
+        self.usage_requests.append((account_id, force))
         if account_id in self.usage_errors:
             raise HTTPException(status_code=502, detail="刷新用量失败")
         return {"data": self.usage.get(account_id, {})}
@@ -81,6 +83,88 @@ class SubscriptionQuotaResetServiceTest(unittest.IsolatedAsyncioTestCase):
             "skipped": 1,
             "failed": 0,
         })
+
+    async def test_resets_subscriptions_in_different_account_groups(self) -> None:
+        client = FakeSub2ApiClient(
+            accounts=[
+                openai_account(1, [10]),
+                openai_account(2, [20]),
+            ],
+            subscriptions={
+                10: [active_subscription(101, 10, "2026-08-01T08:00:00Z")],
+                20: [active_subscription(201, 20, "2026-08-01T08:00:00Z")],
+            },
+            usage={
+                1: usage_with_reset("2026-08-12T00:00:00Z"),
+                2: usage_with_reset("2026-08-13T00:00:00Z"),
+            },
+        )
+
+        result = await SubscriptionQuotaResetService(client).run(self.now)
+
+        self.assertEqual(client.reset_attempts, [101, 201])
+        self.assertEqual(result["groups"]["with_reset_boundary"], 2)
+        self.assertEqual(result["subscriptions"]["reset"], 2)
+
+    async def test_uses_expired_snapshot_before_forced_refresh(self) -> None:
+        client = FakeSub2ApiClient(
+            accounts=[openai_account(
+                1,
+                [10],
+                extra={
+                    "codex_7d_used_percent": 100,
+                    "codex_7d_reset_after_seconds": 10,
+                    "codex_7d_reset_at": "2026-08-09T11:59:00Z",
+                },
+            )],
+            subscriptions={
+                10: [active_subscription(101, 10, "2026-08-08T08:00:00Z")],
+            },
+            usage={1: {
+                "seven_day": {
+                    "utilization": 0,
+                    "resets_at": "2026-08-16T12:00:00Z",
+                    "remaining_seconds": 604799,
+                },
+            }},
+        )
+
+        result = await SubscriptionQuotaResetService(client).run(self.now)
+
+        self.assertEqual(client.usage_requests, [(1, True)])
+        self.assertEqual(client.reset_attempts, [101])
+        self.assertEqual(result["groups"]["with_reset_boundary"], 1)
+
+    async def test_ignores_unanchored_zero_usage_window(self) -> None:
+        client = FakeSub2ApiClient(
+            accounts=[openai_account(
+                1,
+                [10],
+                extra={
+                    "codex_7d_used_percent": 0,
+                    "codex_7d_reset_after_seconds": 604799,
+                    "codex_7d_reset_at": "2026-08-16T12:00:10Z",
+                },
+            )],
+            subscriptions={
+                10: [active_subscription(101, 10, "2026-08-08T08:00:00Z")],
+            },
+            usage={1: {
+                "seven_day": {
+                    "utilization": 0,
+                    "resets_at": "2026-08-16T12:00:12Z",
+                    "remaining_seconds": 604799,
+                },
+            }},
+        )
+
+        result = await SubscriptionQuotaResetService(client).run(self.now)
+
+        self.assertEqual(client.usage_requests, [(1, True)])
+        self.assertEqual(client.reset_attempts, [])
+        self.assertEqual(result["accounts"]["unanchored_7d_window"], 1)
+        self.assertEqual(result["groups"]["with_reset_boundary"], 0)
+        self.assertEqual(result["subscriptions"]["matched"], 0)
 
     async def test_falls_back_to_account_snapshot_when_usage_refresh_fails(self) -> None:
         client = FakeSub2ApiClient(

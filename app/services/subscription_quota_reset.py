@@ -1,5 +1,6 @@
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
+from math import isfinite
 from typing import Any
 
 from fastapi import HTTPException
@@ -8,6 +9,8 @@ from app.services.sub2api_client import Sub2ApiClient
 
 PAGE_SIZE = 1000
 SEVEN_DAYS = timedelta(days=7)
+SEVEN_DAY_SECONDS = int(SEVEN_DAYS.total_seconds())
+UNANCHORED_WINDOW_TOLERANCE_SECONDS = 60
 
 
 class SubscriptionQuotaResetService:
@@ -15,7 +18,8 @@ class SubscriptionQuotaResetService:
         self.client = client
 
     async def run(self, now: datetime | None = None) -> dict[str, Any]:
-        checked_at = normalize_datetime(now or datetime.now(timezone.utc))
+        fixed_now = normalize_datetime(now) if now is not None else None
+        checked_at = fixed_now or datetime.now(timezone.utc)
         accounts = await self._list_all(
             self.client.list_accounts,
             {"platform": "openai", "type": "oauth", "sort_order": "asc"},
@@ -25,6 +29,7 @@ class SubscriptionQuotaResetService:
         account_usage_failures = 0
         matched_accounts = 0
         accounts_with_window = 0
+        unanchored_accounts = 0
         errors: list[dict[str, Any]] = []
 
         for account in accounts:
@@ -46,8 +51,11 @@ class SubscriptionQuotaResetService:
                 account_usage_failures += 1
                 errors.append(build_error("account_usage", account_id, exc))
 
-            reset_boundary = get_reset_boundary(usage, account, checked_at)
+            observed_at = fixed_now or datetime.now(timezone.utc)
+            reset_boundary = get_reset_boundary(usage, account, observed_at)
             if reset_boundary is None:
+                if has_unanchored_seven_day_window(usage, account):
+                    unanchored_accounts += 1
                 continue
 
             accounts_with_window += 1
@@ -57,6 +65,7 @@ class SubscriptionQuotaResetService:
                     group_boundaries[group_id] = reset_boundary
 
         subscriptions: dict[int, tuple[dict[str, Any], datetime]] = {}
+        group_list_failures = 0
         for group_id, reset_boundary in group_boundaries.items():
             try:
                 group_subscriptions = await self._list_all(
@@ -64,6 +73,7 @@ class SubscriptionQuotaResetService:
                     {"group_id": group_id, "status": "active", "sort_order": "asc"},
                 )
             except Exception as exc:
+                group_list_failures += 1
                 errors.append(build_error("subscription_list", group_id, exc))
                 continue
 
@@ -113,7 +123,12 @@ class SubscriptionQuotaResetService:
             "accounts": {
                 "matched": matched_accounts,
                 "with_7d_window": accounts_with_window,
+                "unanchored_7d_window": unanchored_accounts,
                 "usage_refresh_failed": account_usage_failures,
+            },
+            "groups": {
+                "with_reset_boundary": len(group_boundaries),
+                "subscription_list_failed": group_list_failures,
             },
             "subscriptions": {
                 "matched": len(subscriptions),
@@ -168,20 +183,85 @@ def get_reset_boundary(
     account: dict[str, Any],
     now: datetime,
 ) -> datetime | None:
+    boundaries: list[datetime] = []
+
+    extra = account.get("extra")
+    if isinstance(extra, dict):
+        add_reset_boundary(
+            boundaries,
+            extra.get("codex_7d_reset_at"),
+            now,
+            is_unanchored_seven_day_window(
+                extra.get("codex_7d_used_percent"),
+                extra.get("codex_7d_reset_after_seconds"),
+            ),
+        )
+
     seven_day = usage.get("seven_day")
-    reset_at = seven_day.get("resets_at") if isinstance(seven_day, dict) else None
+    if isinstance(seven_day, dict):
+        add_reset_boundary(
+            boundaries,
+            seven_day.get("resets_at"),
+            now,
+            is_unanchored_seven_day_window(
+                seven_day.get("utilization"),
+                seven_day.get("remaining_seconds"),
+            ),
+        )
 
-    if reset_at is None:
-        extra = account.get("extra")
-        if isinstance(extra, dict):
-            reset_at = extra.get("codex_7d_reset_at")
+    return max(boundaries) if boundaries else None
 
+
+def add_reset_boundary(
+    boundaries: list[datetime],
+    reset_at: Any,
+    now: datetime,
+    unanchored: bool,
+) -> None:
     parsed_reset_at = parse_datetime(reset_at)
     if parsed_reset_at is None:
-        return None
+        return
 
-    boundary = parsed_reset_at - SEVEN_DAYS if parsed_reset_at > now else parsed_reset_at
-    return boundary if boundary <= now else None
+    if parsed_reset_at <= now:
+        boundaries.append(parsed_reset_at)
+    elif not unanchored:
+        boundaries.append(parsed_reset_at - SEVEN_DAYS)
+
+
+def has_unanchored_seven_day_window(
+    usage: dict[str, Any],
+    account: dict[str, Any],
+) -> bool:
+    seven_day = usage.get("seven_day")
+    if isinstance(seven_day, dict) and is_unanchored_seven_day_window(
+        seven_day.get("utilization"),
+        seven_day.get("remaining_seconds"),
+    ):
+        return True
+
+    extra = account.get("extra")
+    return isinstance(extra, dict) and is_unanchored_seven_day_window(
+        extra.get("codex_7d_used_percent"),
+        extra.get("codex_7d_reset_after_seconds"),
+    )
+
+
+def is_unanchored_seven_day_window(
+    utilization: Any,
+    remaining_seconds: Any,
+) -> bool:
+    # An unused OpenAI window can roll forward on every probe, so it has no
+    # stable cycle boundary until usage begins or the previous snapshot expires.
+    parsed_utilization = parse_number(utilization)
+    parsed_remaining = parse_number(remaining_seconds)
+    if parsed_utilization is None or parsed_remaining is None:
+        return False
+
+    return (
+        parsed_utilization <= 0
+        and parsed_remaining
+        >= SEVEN_DAY_SECONDS - UNANCHORED_WINDOW_TOLERANCE_SECONDS
+    )
 
 
 def get_group_ids(account: dict[str, Any]) -> set[int]:
@@ -215,6 +295,16 @@ def normalize_datetime(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+def parse_number(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if isfinite(parsed) else None
 
 
 def positive_int(value: Any) -> int | None:
