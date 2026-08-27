@@ -37,11 +37,12 @@
 
 1. 分页查询全部 `openai + oauth` 账号。
 2. 保存账号刷新前的 7 天额度快照，然后强制请求 OpenAI 获取最新额度。
-3. 使用刷新前后的窗口信息判断旧窗口是否到期；零使用率且剩余完整 7 天的未锚定窗口只更新展示，不单独触发订阅重置。
-4. 根据账号的 `group_ids` 建立分组与有效重置边界的关系。
-5. 同一分组包含多个账号时，使用其中最新的有效边界作为该分组的重置边界。
-6. 分页查询分组下的全部活跃订阅。
-7. 当订阅的 `weekly_window_start`（缺失时使用 `starts_at`）早于分组重置边界时，调用 Sub2API 重置订阅配额。
+3. 将每个账号最后一次官方窗口状态原子写入本地 JSON 文件。
+4. 结合刷新前快照、最新官方窗口和持久状态判断窗口转换；首次出现的未锚定窗口安全跳过，稳定窗口转换为未锚定窗口时只生成一次固定重置边界。
+5. 根据账号的 `group_ids` 建立分组与有效重置边界的关系。
+6. 同一分组包含多个账号时，使用其中最新的有效边界作为该分组的重置边界。
+7. 分页查询分组下的全部活跃订阅。
+8. 当订阅的 `weekly_window_start`（缺失时使用 `starts_at`）早于分组重置边界时，调用 Sub2API 重置订阅配额。
 
 订阅与账号之间没有直接绑定关系，二者通过分组关联。因此：
 
@@ -99,6 +100,7 @@ SUB2API_JWT_SECRET=your-sub2api-jwt-secret
 
 AUTO_RESET_ENABLED=true
 AUTO_RESET_INTERVAL_SECONDS=1800
+AUTO_RESET_STATE_FILE=data/subscription_quota_reset_state.json
 ```
 
 `SUB2API_JWT_SECRET` 必须与 Sub2API 服务使用的 `JWT_SECRET` 完全一致，否则用户 Token 无法通过校验。
@@ -137,6 +139,7 @@ http://127.0.0.1:8000/?user_id=3&token=your-user-token
 | `SUB2API_JWT_SECRET` | 是 | 无 | 用于校验 Sub2API 用户 JWT 的密钥 |
 | `AUTO_RESET_ENABLED` | 否 | `true` | 是否启用订阅配额自动重置任务 |
 | `AUTO_RESET_INTERVAL_SECONDS` | 否 | `1800` | 每次任务执行完成后的等待秒数，必须是正整数 |
+| `AUTO_RESET_STATE_FILE` | 否 | `data/subscription_quota_reset_state.json` | 官方额度窗口状态文件；容器部署必须挂载持久卷 |
 
 布尔配置支持 `1`、`true`、`yes`、`on`，不区分大小写；其他值按关闭处理。
 
@@ -211,11 +214,13 @@ docker build -t sub2api-view .
 docker run --rm \
   --name sub2api-view \
   -p 8000:8000 \
+  -v "$(pwd)/data:/app/data" \
   -e SUB2API_BASE_URL=http://host.docker.internal:8080 \
   -e SUB2API_ADMIN_KEY=your-admin-api-key \
   -e SUB2API_JWT_SECRET=your-sub2api-jwt-secret \
   -e AUTO_RESET_ENABLED=true \
   -e AUTO_RESET_INTERVAL_SECONDS=1800 \
+  -e AUTO_RESET_STATE_FILE=/app/data/subscription_quota_reset_state.json \
   sub2api-view
 ```
 
@@ -260,6 +265,7 @@ uv run python -m unittest discover -s tests -v
 
 - Sub2API 客户端请求和订阅配额重置参数
 - 分组与订阅匹配、分页、去重和失败隔离
+- 官方窗口状态持久化、应用重启和滚动窗口防重复
 - 自动重置任务配置、执行周期和应用生命周期
 - 手动重置接口不可访问
 
@@ -278,6 +284,7 @@ uv run python -m unittest discover -s tests -v
 |   |-- services/
 |   |   |-- sub2api_client.py              # Sub2API 管理员 API 客户端
 |   |   |-- subscription_quota_reset.py    # 分组订阅配额重置逻辑
+|   |   |-- subscription_quota_reset_state.py # 官方窗口状态持久化
 |   |   `-- subscription_quota_reset_scheduler.py # 后台定时任务
 |   |-- static/                              # CSS 与 JavaScript
 |   |-- templates/                           # Jinja2 页面模板
@@ -297,6 +304,7 @@ uv run python -m unittest discover -s tests -v
 - 页面 Token 位于 URL 查询参数中，生产环境应启用 HTTPS，并避免由代理或访问日志长期记录完整查询参数。
 - 不要直接将服务暴露到不可信网络，建议放在反向代理、内网或其他访问控制之后。
 - 每个应用进程都会启动一个定时任务。多副本部署时，只保留一个副本的 `AUTO_RESET_ENABLED=true`，其他副本应设为 `false`，避免并发重复重置。
+- `AUTO_RESET_STATE_FILE` 只适用于单个调度实例。Docker 部署必须保留 `./data:/app/data` 挂载，否则重建容器会丢失窗口状态。
 - 定时任务采用“执行完成后再等待”的方式，实际两次启动时间的间隔等于任务耗时加配置间隔。
 - 生产环境应将 `APP_RELOAD` 设置为 `false`，避免重载进程重复启动任务。
 

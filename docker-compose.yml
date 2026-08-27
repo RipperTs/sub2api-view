@@ -5,6 +5,8 @@ services:
     restart: always
     ports:
       - "8000:8000"
+    volumes:
+      - ./data:/app/data
     environment:
       APP_HOST: 0.0.0.0
       APP_PORT: 8000
@@ -14,3 +16,4 @@ services:
       SUB2API_JWT_SECRET: your-sub2api-jwt-secret
       AUTO_RESET_ENABLED: true
       AUTO_RESET_INTERVAL_SECONDS: 1800
+      AUTO_RESET_STATE_FILE: /app/data/subscription_quota_reset_state.json

@@ -9,5 +9,6 @@ __pycache__/
 .gitignore
 dist/
 build/
+data/
 *.egg-info/
 .idea

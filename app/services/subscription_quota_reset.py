@@ -1,4 +1,5 @@
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from math import isfinite
 from typing import Any
@@ -6,6 +7,10 @@ from typing import Any
 from fastapi import HTTPException
 
 from app.services.sub2api_client import Sub2ApiClient
+from app.services.subscription_quota_reset_state import (
+    SubscriptionQuotaResetStateError,
+    SubscriptionQuotaResetStateStore,
+)
 
 PAGE_SIZE = 1000
 SEVEN_DAYS = timedelta(days=7)
@@ -13,9 +18,20 @@ SEVEN_DAY_SECONDS = int(SEVEN_DAYS.total_seconds())
 UNANCHORED_WINDOW_TOLERANCE_SECONDS = 60
 
 
+@dataclass(frozen=True)
+class SevenDayWindow:
+    reset_at: datetime
+    unanchored: bool
+
+
 class SubscriptionQuotaResetService:
-    def __init__(self, client: Sub2ApiClient) -> None:
+    def __init__(
+        self,
+        client: Sub2ApiClient,
+        state_store: SubscriptionQuotaResetStateStore | None = None,
+    ) -> None:
         self.client = client
+        self.state_store = state_store
 
     async def run(self, now: datetime | None = None) -> dict[str, Any]:
         fixed_now = normalize_datetime(now) if now is not None else None
@@ -25,12 +41,22 @@ class SubscriptionQuotaResetService:
             {"platform": "openai", "type": "oauth", "sort_order": "asc"},
         )
 
+        errors: list[dict[str, Any]] = []
+        state_load_failed = 0
+        state_save_failed = 0
+        account_states: dict[str, dict[str, Any]] = {}
+        if self.state_store is not None:
+            try:
+                account_states = self.state_store.load()
+            except SubscriptionQuotaResetStateError as exc:
+                state_load_failed = 1
+                errors.append(build_state_error("state_load", exc))
+
         group_boundaries: dict[int, datetime] = {}
         account_usage_failures = 0
         matched_accounts = 0
         accounts_with_window = 0
         unanchored_accounts = 0
-        errors: list[dict[str, Any]] = []
 
         for account in accounts:
             if account.get("platform") != "openai" or account.get("type") != "oauth":
@@ -52,9 +78,17 @@ class SubscriptionQuotaResetService:
                 errors.append(build_error("account_usage", account_id, exc))
 
             observed_at = fixed_now or datetime.now(timezone.utc)
-            reset_boundary = get_reset_boundary(usage, account, observed_at)
+            state_key = str(account_id)
+            reset_boundary, account_state, unanchored = resolve_reset_boundary(
+                usage,
+                account,
+                account_states.get(state_key),
+                observed_at,
+            )
+            if account_state is not None:
+                account_states[state_key] = account_state
             if reset_boundary is None:
-                if has_unanchored_seven_day_window(usage, account):
+                if unanchored:
                     unanchored_accounts += 1
                 continue
 
@@ -63,6 +97,14 @@ class SubscriptionQuotaResetService:
                 previous = group_boundaries.get(group_id)
                 if previous is None or reset_boundary > previous:
                     group_boundaries[group_id] = reset_boundary
+
+        if self.state_store is not None:
+            try:
+                self.state_store.save(account_states)
+            except SubscriptionQuotaResetStateError as exc:
+                state_save_failed = 1
+                errors.append(build_state_error("state_save", exc))
+                group_boundaries.clear()
 
         subscriptions: dict[int, tuple[dict[str, Any], datetime]] = {}
         group_list_failures = 0
@@ -129,6 +171,11 @@ class SubscriptionQuotaResetService:
             "groups": {
                 "with_reset_boundary": len(group_boundaries),
                 "subscription_list_failed": group_list_failures,
+            },
+            "state": {
+                "tracked_accounts": len(account_states),
+                "load_failed": state_load_failed,
+                "save_failed": state_save_failed,
             },
             "subscriptions": {
                 "matched": len(subscriptions),
@@ -212,6 +259,106 @@ def get_reset_boundary(
     return max(boundaries) if boundaries else None
 
 
+def resolve_reset_boundary(
+    usage: dict[str, Any],
+    account: dict[str, Any],
+    previous_state: dict[str, Any] | None,
+    now: datetime,
+) -> tuple[datetime | None, dict[str, Any] | None, bool]:
+    usage_window = get_usage_window(usage)
+    account_window = get_account_window(account)
+    current_window = usage_window or account_window
+    fallback_boundary = get_reset_boundary(usage, account, now)
+
+    if current_window is None:
+        previous_boundary = get_state_datetime(previous_state, "last_boundary")
+        boundary = latest_datetime(fallback_boundary, previous_boundary)
+        return boundary, previous_state, False
+
+    previous_mode = previous_state.get("mode") if previous_state else None
+    previous_boundary = get_state_datetime(previous_state, "last_boundary")
+
+    if current_window.unanchored:
+        # Freeze the first rolling boundary and reuse it on later probes.
+        if previous_mode == "anchored":
+            boundary = min(current_window.reset_at - SEVEN_DAYS, now)
+        elif previous_mode == "unanchored":
+            boundary = previous_boundary
+        else:
+            boundary = fallback_boundary
+    else:
+        boundary = get_window_boundary(current_window.reset_at, now)
+
+    boundary = latest_datetime(boundary, previous_boundary)
+    boundary = latest_datetime(boundary, fallback_boundary)
+    state = {
+        "mode": "unanchored" if current_window.unanchored else "anchored",
+        "reset_at": current_window.reset_at.isoformat(),
+        "last_boundary": boundary.isoformat() if boundary is not None else None,
+        "observed_at": now.isoformat(),
+    }
+    return boundary, state, current_window.unanchored
+
+
+def get_usage_window(usage: dict[str, Any]) -> SevenDayWindow | None:
+    seven_day = usage.get("seven_day")
+    if not isinstance(seven_day, dict):
+        return None
+    return build_window(
+        seven_day.get("resets_at"),
+        seven_day.get("utilization"),
+        seven_day.get("remaining_seconds"),
+    )
+
+
+def get_account_window(account: dict[str, Any]) -> SevenDayWindow | None:
+    extra = account.get("extra")
+    if not isinstance(extra, dict):
+        return None
+    return build_window(
+        extra.get("codex_7d_reset_at"),
+        extra.get("codex_7d_used_percent"),
+        extra.get("codex_7d_reset_after_seconds"),
+    )
+
+
+def build_window(
+    reset_at: Any,
+    utilization: Any,
+    remaining_seconds: Any,
+) -> SevenDayWindow | None:
+    parsed_reset_at = parse_datetime(reset_at)
+    if parsed_reset_at is None:
+        return None
+    return SevenDayWindow(
+        reset_at=parsed_reset_at,
+        unanchored=is_unanchored_seven_day_window(
+            utilization,
+            remaining_seconds,
+        ),
+    )
+
+
+def get_window_boundary(reset_at: datetime, now: datetime) -> datetime | None:
+    boundary = reset_at if reset_at <= now else reset_at - SEVEN_DAYS
+    return boundary if boundary <= now else None
+
+
+def get_state_datetime(
+    state: dict[str, Any] | None,
+    key: str,
+) -> datetime | None:
+    return parse_datetime(state.get(key)) if state is not None else None
+
+
+def latest_datetime(
+    first: datetime | None,
+    second: datetime | None,
+) -> datetime | None:
+    candidates = [value for value in (first, second) if value is not None]
+    return max(candidates) if candidates else None
+
+
 def add_reset_boundary(
     boundaries: list[datetime],
     reset_at: Any,
@@ -225,25 +372,9 @@ def add_reset_boundary(
     if parsed_reset_at <= now:
         boundaries.append(parsed_reset_at)
     elif not unanchored:
-        boundaries.append(parsed_reset_at - SEVEN_DAYS)
-
-
-def has_unanchored_seven_day_window(
-    usage: dict[str, Any],
-    account: dict[str, Any],
-) -> bool:
-    seven_day = usage.get("seven_day")
-    if isinstance(seven_day, dict) and is_unanchored_seven_day_window(
-        seven_day.get("utilization"),
-        seven_day.get("remaining_seconds"),
-    ):
-        return True
-
-    extra = account.get("extra")
-    return isinstance(extra, dict) and is_unanchored_seven_day_window(
-        extra.get("codex_7d_used_percent"),
-        extra.get("codex_7d_reset_after_seconds"),
-    )
+        boundary = parsed_reset_at - SEVEN_DAYS
+        if boundary <= now:
+            boundaries.append(boundary)
 
 
 def is_unanchored_seven_day_window(
@@ -320,3 +451,7 @@ def positive_int(value: Any) -> int | None:
 def build_error(scope: str, item_id: int, exc: Exception) -> dict[str, Any]:
     message = exc.detail if isinstance(exc, HTTPException) else str(exc)
     return {"scope": scope, "id": item_id, "message": str(message)}
+
+
+def build_state_error(scope: str, exc: Exception) -> dict[str, Any]:
+    return {"scope": scope, "message": str(exc)}

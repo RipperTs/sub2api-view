@@ -1,10 +1,16 @@
+import tempfile
 import unittest
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException
 
 from app.services.subscription_quota_reset import SubscriptionQuotaResetService
+from app.services.subscription_quota_reset_state import (
+    SubscriptionQuotaResetStateError,
+    SubscriptionQuotaResetStateStore,
+)
 
 
 class FakeSub2ApiClient:
@@ -166,6 +172,148 @@ class SubscriptionQuotaResetServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["groups"]["with_reset_boundary"], 0)
         self.assertEqual(result["subscriptions"]["matched"], 0)
 
+    async def test_persists_window_transition_across_restarts(self) -> None:
+        subscription = active_subscription(101, 10, "2026-08-08T08:00:00Z")
+        client = FakeSub2ApiClient(
+            accounts=[openai_account(1, [10])],
+            subscriptions={10: [subscription]},
+            usage={1: usage_with_reset("2026-08-12T12:00:00Z")},
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = Path(directory) / "quota-reset-state.json"
+            first = await SubscriptionQuotaResetService(
+                client,
+                SubscriptionQuotaResetStateStore(state_path),
+            ).run(self.now)
+
+            self.assertEqual(first["state"]["tracked_accounts"], 1)
+            self.assertEqual(client.reset_attempts, [])
+
+            client.usage[1] = unanchored_usage("2026-08-19T12:00:00Z")
+            second = await SubscriptionQuotaResetService(
+                client,
+                SubscriptionQuotaResetStateStore(state_path),
+            ).run(datetime(2026, 8, 12, 12, tzinfo=timezone.utc))
+
+            self.assertEqual(second["subscriptions"]["reset"], 1)
+            self.assertEqual(client.reset_attempts, [101])
+
+            subscription["weekly_window_start"] = "2026-08-12T12:00:01Z"
+            client.reset_attempts.clear()
+            client.usage[1] = unanchored_usage("2026-08-19T12:30:00Z")
+            third = await SubscriptionQuotaResetService(
+                client,
+                SubscriptionQuotaResetStateStore(state_path),
+            ).run(datetime(2026, 8, 12, 12, 30, tzinfo=timezone.utc))
+
+            saved_state = SubscriptionQuotaResetStateStore(state_path).load()["1"]
+
+        self.assertEqual(client.reset_attempts, [])
+        self.assertEqual(third["subscriptions"]["skipped"], 1)
+        self.assertEqual(saved_state["mode"], "unanchored")
+        self.assertEqual(
+            saved_state["last_boundary"],
+            "2026-08-12T12:00:00+00:00",
+        )
+
+    async def test_initial_unanchored_window_stays_skipped_after_restart(self) -> None:
+        client = FakeSub2ApiClient(
+            accounts=[openai_account(1, [10])],
+            subscriptions={
+                10: [active_subscription(101, 10, "2026-08-01T08:00:00Z")],
+            },
+            usage={1: unanchored_usage("2026-08-16T12:00:00Z")},
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = Path(directory) / "quota-reset-state.json"
+            first = await SubscriptionQuotaResetService(
+                client,
+                SubscriptionQuotaResetStateStore(state_path),
+            ).run(self.now)
+
+            client.usage[1] = unanchored_usage("2026-08-16T12:30:00Z")
+            second = await SubscriptionQuotaResetService(
+                client,
+                SubscriptionQuotaResetStateStore(state_path),
+            ).run(datetime(2026, 8, 9, 12, 30, tzinfo=timezone.utc))
+            saved_state = SubscriptionQuotaResetStateStore(state_path).load()["1"]
+
+        self.assertEqual(client.reset_attempts, [])
+        self.assertEqual(first["accounts"]["unanchored_7d_window"], 1)
+        self.assertEqual(second["accounts"]["unanchored_7d_window"], 1)
+        self.assertIsNone(saved_state["last_boundary"])
+
+    async def test_recovers_safely_from_corrupt_state_file(self) -> None:
+        client = FakeSub2ApiClient(
+            accounts=[openai_account(1, [10])],
+            subscriptions={
+                10: [active_subscription(101, 10, "2026-08-01T08:00:00Z")],
+            },
+            usage={1: unanchored_usage("2026-08-16T12:00:00Z")},
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = Path(directory) / "quota-reset-state.json"
+            state_path.write_text("not-json", encoding="utf-8")
+            store = SubscriptionQuotaResetStateStore(state_path)
+
+            result = await SubscriptionQuotaResetService(client, store).run(self.now)
+            saved_state = store.load()
+
+        self.assertEqual(client.reset_attempts, [])
+        self.assertEqual(result["state"]["load_failed"], 1)
+        self.assertEqual(result["state"]["save_failed"], 0)
+        self.assertEqual(result["errors"][0]["scope"], "state_load")
+        self.assertEqual(saved_state["1"]["mode"], "unanchored")
+
+    async def test_does_not_reset_when_state_cannot_be_saved(self) -> None:
+        class FailingStateStore:
+            def load(self) -> dict[str, dict[str, Any]]:
+                return {}
+
+            def save(self, accounts: dict[str, dict[str, Any]]) -> None:
+                raise SubscriptionQuotaResetStateError("只读文件系统")
+
+        client = FakeSub2ApiClient(
+            accounts=[openai_account(1, [10])],
+            subscriptions={
+                10: [active_subscription(101, 10, "2026-08-01T08:00:00Z")],
+            },
+            usage={1: usage_with_reset("2026-08-12T00:00:00Z")},
+        )
+
+        result = await SubscriptionQuotaResetService(
+            client,
+            FailingStateStore(),
+        ).run(self.now)
+
+        self.assertEqual(client.reset_attempts, [])
+        self.assertEqual(result["state"]["save_failed"], 1)
+        self.assertEqual(result["groups"]["with_reset_boundary"], 0)
+        self.assertEqual(result["errors"][0]["scope"], "state_save")
+
+    async def test_keeps_state_when_account_list_is_temporarily_empty(self) -> None:
+        saved_state = {
+            "1": {
+                "mode": "anchored",
+                "reset_at": "2026-08-12T12:00:00+00:00",
+                "last_boundary": "2026-08-05T12:00:00+00:00",
+                "observed_at": "2026-08-09T12:00:00+00:00",
+            }
+        }
+        client = FakeSub2ApiClient(accounts=[], subscriptions={}, usage={})
+
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = Path(directory) / "quota-reset-state.json"
+            store = SubscriptionQuotaResetStateStore(state_path)
+            store.save(saved_state)
+
+            await SubscriptionQuotaResetService(client, store).run(self.now)
+
+            self.assertEqual(store.load(), saved_state)
+
     async def test_falls_back_to_account_snapshot_when_usage_refresh_fails(self) -> None:
         client = FakeSub2ApiClient(
             accounts=[openai_account(
@@ -285,6 +433,16 @@ def active_subscription(
 
 def usage_with_reset(reset_at: str) -> dict[str, Any]:
     return {"seven_day": {"resets_at": reset_at}}
+
+
+def unanchored_usage(reset_at: str) -> dict[str, Any]:
+    return {
+        "seven_day": {
+            "utilization": 0,
+            "resets_at": reset_at,
+            "remaining_seconds": 604800,
+        }
+    }
 
 
 if __name__ == "__main__":

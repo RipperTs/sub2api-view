@@ -6,8 +6,10 @@ from unittest.mock import AsyncMock, patch
 from app.main import app, lifespan
 from app.services.subscription_quota_reset_scheduler import (
     DEFAULT_INTERVAL_SECONDS,
+    DEFAULT_STATE_FILE,
     LOGGER,
     get_auto_reset_interval_seconds,
+    get_auto_reset_state_file,
     is_auto_reset_enabled,
     run_auto_reset_scheduler,
     run_scheduled_auto_reset,
@@ -19,6 +21,7 @@ class SubscriptionQuotaResetSchedulerTest(unittest.IsolatedAsyncioTestCase):
         with patch.dict(os.environ, {}, clear=True):
             self.assertTrue(is_auto_reset_enabled())
             self.assertEqual(get_auto_reset_interval_seconds(), DEFAULT_INTERVAL_SECONDS)
+            self.assertEqual(get_auto_reset_state_file(), DEFAULT_STATE_FILE)
 
     def test_can_disable_auto_reset(self) -> None:
         with patch.dict(os.environ, {"AUTO_RESET_ENABLED": "false"}):
@@ -35,6 +38,11 @@ class SubscriptionQuotaResetSchedulerTest(unittest.IsolatedAsyncioTestCase):
             ):
                 with self.assertRaisesRegex(ValueError, "必须是正整数"):
                     get_auto_reset_interval_seconds()
+
+    def test_rejects_empty_state_file(self) -> None:
+        with patch.dict(os.environ, {"AUTO_RESET_STATE_FILE": "  "}):
+            with self.assertRaisesRegex(ValueError, "不能为空"):
+                get_auto_reset_state_file()
 
     async def test_logs_failure_without_stopping_scheduler(self) -> None:
         execute = AsyncMock(side_effect=RuntimeError("upstream unavailable"))
@@ -55,6 +63,7 @@ class SubscriptionQuotaResetSchedulerTest(unittest.IsolatedAsyncioTestCase):
                 "unanchored_7d_window": 1,
             },
             "groups": {"with_reset_boundary": 1},
+            "state": {"tracked_accounts": 2},
             "subscriptions": {
                 "matched": 4,
                 "reset": 4,
@@ -72,6 +81,7 @@ class SubscriptionQuotaResetSchedulerTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("未锚定窗口 1", logs.output[0])
         self.assertIn("分组 1", logs.output[0])
+        self.assertIn("状态账号 2", logs.output[0])
         self.assertIn("重置 4", logs.output[0])
 
     async def test_runs_immediately_then_waits_for_interval(self) -> None:
