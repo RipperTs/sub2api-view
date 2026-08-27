@@ -76,6 +76,21 @@ docker run --rm -p 8000:8000 \
 docker compose up -d
 ```
 
+### GitHub Actions 自动发布
+
+在 GitHub 仓库的 `Settings > Secrets and variables > Actions` 中配置：
+
+- `ALIYUN_REGISTRY_USERNAME`：阿里云镜像仓库登录用户名
+- `ALIYUN_REGISTRY_PASSWORD`：阿里云镜像仓库登录密码
+
+推送以 `v` 开头的版本标签后，GitHub Actions 会构建镜像，并将版本标签和
+`latest` 推送到 `registry.cn-hangzhou.aliyuncs.com/ripper/sub2api-view`：
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
 ## 目录结构
 
 ```text
