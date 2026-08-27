@@ -258,6 +258,64 @@ select {
   white-space: nowrap;
 }
 
+.reset-credit-panel {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  margin-top: 4px;
+  border: 1px solid #dbe7ff;
+  border-radius: 7px;
+  padding: 10px 12px;
+  background: #f5f8ff;
+}
+
+.reset-credit-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.reset-credit-summary span {
+  border-radius: 999px;
+  padding: 4px 9px;
+  background: #dbe7ff;
+  color: #3155a6;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.reset-credit-summary strong {
+  color: #344054;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.reset-credit-expiries {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+}
+
+.reset-credit-expiry {
+  border-radius: 6px;
+  padding: 5px 8px;
+  background: #fff;
+  color: #667085;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.reset-credit-expiry b {
+  margin-right: 4px;
+  color: #4f6fbd;
+  font-weight: 800;
+}
+
 .account-key-info {
   display: grid;
   gap: 10px;
@@ -376,6 +434,14 @@ select {
   }
 
   .usage-stats {
+    justify-content: flex-start;
+  }
+
+  .reset-credit-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .reset-credit-expiries {
     justify-content: flex-start;
   }
 

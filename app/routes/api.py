@@ -24,6 +24,7 @@ SENSITIVE_ACCOUNT_KEYS = {
 
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 AUTO_RESET_LOCK = asyncio.Lock()
+UPSTREAM_PAGE_SIZE = 100
 
 
 @router.get("/accounts")
@@ -36,19 +37,18 @@ async def list_accounts(
         group: str | None = None,
         search: str | None = None,
 ):
+    group_ids = parse_group_ids(group)
     params = {
-        "page": page,
-        "page_size": page_size,
         "platform": platform,
         "type": account_type,
         "status": status,
-        "group": group,
         "search": search,
         "sort_order": "asc"
     }
     clean_params = {key: value for key, value in params.items() if value not in (None, "")}
 
-    payload = await Sub2ApiClient().list_accounts(clean_params)
+    payload = await list_all_accounts(clean_params)
+    filter_and_paginate_accounts(payload, group_ids, page, page_size)
     return sanitize_accounts_payload(payload)
 
 
@@ -65,6 +65,77 @@ async def auto_reset_subscription_quotas():
     async with AUTO_RESET_LOCK:
         async with Sub2ApiClient() as client:
             return await SubscriptionQuotaResetService(client).run()
+
+
+async def list_all_accounts(params: dict[str, Any]) -> dict[str, Any]:
+    async with Sub2ApiClient() as client:
+        first_payload = await client.list_accounts({
+            **params,
+            "page": 1,
+            "page_size": UPSTREAM_PAGE_SIZE,
+        })
+        first_data = get_accounts_data(first_payload)
+        pages = first_data.get("pages", 1)
+
+        if pages > 1:
+            remaining_payloads = await asyncio.gather(*(
+                client.list_accounts({
+                    **params,
+                    "page": current_page,
+                    "page_size": UPSTREAM_PAGE_SIZE,
+                })
+                for current_page in range(2, pages + 1)
+            ))
+            for payload in remaining_payloads:
+                first_data["items"].extend(get_accounts_data(payload)["items"])
+
+        return first_payload
+
+
+def parse_group_ids(group: str | None) -> set[int]:
+    if group is None or not group.strip():
+        return set()
+
+    try:
+        group_ids = {int(value.strip()) for value in group.split(",")}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="group 必须是逗号分隔的分组 ID") from exc
+
+    if not group_ids or any(group_id <= 0 for group_id in group_ids):
+        raise HTTPException(status_code=422, detail="group 必须是逗号分隔的正整数分组 ID")
+
+    return group_ids
+
+
+def filter_and_paginate_accounts(
+        payload: dict[str, Any],
+        group_ids: set[int],
+        page: int,
+        page_size: int,
+) -> None:
+    data = get_accounts_data(payload)
+    accounts = [
+        account
+        for account in data["items"]
+        if account.get("schedulable") is not False
+        and (
+            not group_ids
+            or group_ids.intersection(account.get("group_ids", []))
+        )
+    ]
+    total = len(accounts)
+    start = (page - 1) * page_size
+
+    data["items"] = accounts[start:start + page_size]
+    data["total"] = total
+    data["page"] = page
+    data["page_size"] = page_size
+    data["pages"] = max(1, (total + page_size - 1) // page_size)
+
+
+def get_accounts_data(payload: dict[str, Any]) -> dict[str, Any]:
+    data = payload.get("data")
+    return data if isinstance(data, dict) else payload
 
 
 def sanitize_accounts_payload(payload: dict[str, Any]) -> dict[str, Any]:

@@ -224,6 +224,11 @@ function renderAccounts(accounts) {
       const codex7dPercent = formatPercent(getValue(account, ["extra.codex_7d_used_percent"], ""));
       const codex7dValue = normalizePercent(getValue(account, ["extra.codex_7d_used_percent"], ""));
       const codex7dReset = formatDuration(getValue(account, ["extra.codex_7d_reset_after_seconds"], ""));
+      const resetCreditSnapshot = getValue(
+        account,
+        ["extra.codex_reset_credit_snapshot"],
+        null,
+      );
       const fiveHourStats = getValue(account, ["usage.five_hour.window_stats"], {});
       const sevenDayStats = getValue(account, ["usage.seven_day.window_stats"], {});
       const updatedAt = formatDate(getValue(account, ["updated_at", "update_time"], ""));
@@ -258,6 +263,7 @@ function renderAccounts(accounts) {
                 codex7dReset,
                 sevenDayStats,
               )}
+              ${renderResetCredits(resetCreditSnapshot)}
             </div>
 
             <div class="account-key-info">
@@ -305,6 +311,39 @@ function renderUsageRow(label, percent, percentText, resetText, stats) {
         <span>${escapeHtml(formatCompactNumber(stats.requests, " req"))}</span>
         <span>${escapeHtml(formatCompactNumber(stats.tokens))}</span>
         <span>${escapeHtml(formatMoney(stats.standard_cost))}</span>
+      </div>
+    </div>
+  `;
+}
+
+function renderResetCredits(snapshot) {
+  if (!snapshot || typeof snapshot !== "object") {
+    return "";
+  }
+
+  const availableCount = getValue(snapshot, ["available_count"], 0);
+  const credits = getValue(snapshot, ["credits"], []);
+  const safeCredits = Array.isArray(credits) ? credits : [];
+
+  if (availableCount <= 0 || !safeCredits.length) {
+    return "";
+  }
+
+  return `
+    <div class="reset-credit-panel">
+      <div class="reset-credit-summary">
+        <span>重置卡</span>
+        <strong>${escapeHtml(availableCount)} 张可用</strong>
+      </div>
+      <div class="reset-credit-expiries">
+        ${safeCredits
+          .map((credit, index) => `
+            <span class="reset-credit-expiry">
+              <b>#${index + 1}</b>
+              ${escapeHtml(formatDate(getValue(credit, ["expires_at"], "")))} 到期
+            </span>
+          `)
+          .join("")}
       </div>
     </div>
   `;
