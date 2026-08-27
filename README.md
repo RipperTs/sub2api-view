@@ -19,6 +19,8 @@ APP_RELOAD=true
 SUB2API_BASE_URL=http://127.0.0.1:8080
 SUB2API_ADMIN_KEY=your-admin-api-key
 SUB2API_JWT_SECRET=your-sub2api-jwt-secret
+AUTO_RESET_ENABLED=true
+AUTO_RESET_INTERVAL_SECONDS=180
 ```
 
 `SUB2API_JWT_SECRET` 必须与 Sub2API 服务使用的 `JWT_SECRET` 完全一致。
@@ -41,19 +43,14 @@ http://127.0.0.1:8000/accounts?user_id=3&token=your-user-token
 
 ## 自动重置订阅配额
 
-调用下面的接口检测所有 OpenAI OAuth 账号。如果账号的 7 天额度窗口已经重置，
-接口会自动重置该账号关联分组下所有活跃订阅的日、周、月配额：
+应用启动后会立即检测所有 OpenAI OAuth 账号，之后默认每隔 180 秒检测一次。
+如果账号的 7 天额度窗口已经重置，任务会自动重置该账号关联分组下所有活跃订阅的
+日、周、月配额。可以通过 `AUTO_RESET_ENABLED` 启停任务，并使用
+`AUTO_RESET_INTERVAL_SECONDS` 调整执行间隔。
 
-```bash
-curl -X POST \
-  "http://127.0.0.1:8000/api/subscriptions/auto-reset?user_id=3" \
-  -H "Authorization: Bearer your-admin-user-token"
-```
-
-该接口仅允许 Sub2API 管理员用户调用，并通过 `SUB2API_ADMIN_KEY` 调用
-Sub2API 管理员 API。重复调用是安全的：已经在
-当前 7 天窗口内重置过的订阅会被跳过。响应中会返回检查数量、重置数量以及失败明细，
-单个账号或订阅失败不会中断其他数据的处理。
+任务通过 `SUB2API_ADMIN_KEY` 直接调用 Sub2API 管理员 API，不对外提供手动重置接口。
+重复执行是安全的：当前 7 天窗口内已经重置过的订阅会被跳过，单个账号或订阅失败
+不会中断其他数据的处理。
 
 ## Docker
 

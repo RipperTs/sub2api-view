@@ -2,7 +2,7 @@ import os
 from typing import Annotated, Any
 
 import jwt
-from fastapi import Depends, Header, HTTPException, Query
+from fastapi import Header, HTTPException, Query
 
 from app.services.sub2api_client import Sub2ApiClient
 
@@ -26,15 +26,6 @@ async def verify_api_user(
         raise HTTPException(status_code=401, detail="用户认证信息格式无效")
 
     return await authenticate_user(user_id, token.strip())
-
-
-async def verify_admin_user(
-        user: Annotated[dict[str, Any], Depends(verify_api_user)],
-) -> dict[str, Any]:
-    if user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="仅管理员可执行此操作")
-
-    return user
 
 
 async def authenticate_user(

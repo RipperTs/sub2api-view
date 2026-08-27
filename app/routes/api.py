@@ -5,9 +5,8 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.core.security import verify_admin_user, verify_api_user
+from app.core.security import verify_api_user
 from app.services.sub2api_client import Sub2ApiClient
-from app.services.subscription_quota_reset import SubscriptionQuotaResetService
 
 router = APIRouter(prefix="/api")
 
@@ -23,7 +22,6 @@ SENSITIVE_ACCOUNT_KEYS = {
 }
 
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-AUTO_RESET_LOCK = asyncio.Lock()
 UPSTREAM_PAGE_SIZE = 100
 
 
@@ -54,19 +52,6 @@ async def list_accounts(
     filter_and_paginate_accounts(payload, group_ids, page, page_size)
     await enrich_accounts_with_usage(payload)
     return sanitize_accounts_payload(payload)
-
-
-@router.post(
-    "/subscriptions/auto-reset",
-    dependencies=[Depends(verify_admin_user)],
-)
-async def auto_reset_subscription_quotas():
-    if AUTO_RESET_LOCK.locked():
-        raise HTTPException(status_code=409, detail="自动重置检测正在执行")
-
-    async with AUTO_RESET_LOCK:
-        async with Sub2ApiClient() as client:
-            return await SubscriptionQuotaResetService(client).run()
 
 
 async def list_all_accounts(params: dict[str, Any]) -> dict[str, Any]:
