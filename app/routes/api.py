@@ -27,8 +27,9 @@ AUTO_RESET_LOCK = asyncio.Lock()
 UPSTREAM_PAGE_SIZE = 100
 
 
-@router.get("/accounts", dependencies=[Depends(verify_api_user)])
+@router.get("/accounts")
 async def list_accounts(
+        user: Annotated[dict[str, Any], Depends(verify_api_user)],
         page: Annotated[int, Query(ge=1)] = 1,
         page_size: Annotated[int, Query(ge=1, le=100)] = 20,
         platform: str | None = None,
@@ -36,6 +37,10 @@ async def list_accounts(
         status: str | None = None,
         search: str | None = None,
 ):
+    group_ids = await list_user_subscription_group_ids(user["id"])
+    if not group_ids:
+        return empty_accounts_payload(page, page_size)
+
     params = {
         "platform": platform,
         "type": account_type,
@@ -46,7 +51,7 @@ async def list_accounts(
     clean_params = {key: value for key, value in params.items() if value not in (None, "")}
 
     payload = await list_all_accounts(clean_params)
-    filter_and_paginate_accounts(payload, page, page_size)
+    filter_and_paginate_accounts(payload, group_ids, page, page_size)
     await enrich_accounts_with_usage(payload)
     return sanitize_accounts_payload(payload)
 
@@ -89,8 +94,56 @@ async def list_all_accounts(params: dict[str, Any]) -> dict[str, Any]:
         return first_payload
 
 
+async def list_user_subscription_group_ids(user_id: int) -> set[int]:
+    params = {
+        "user_id": user_id,
+        "status": "active",
+        "sort_order": "asc",
+    }
+    page = 1
+    group_ids: set[int] = set()
+
+    async with Sub2ApiClient() as client:
+        while True:
+            payload = await client.list_subscriptions({
+                **params,
+                "page": page,
+                "page_size": UPSTREAM_PAGE_SIZE,
+            })
+            data = get_subscriptions_data(payload)
+            group_ids.update(
+                subscription["group_id"]
+                for subscription in data["items"]
+                if isinstance(subscription, dict)
+                and subscription.get("user_id") == user_id
+                and subscription.get("status") == "active"
+                and isinstance(subscription.get("group_id"), int)
+                and not isinstance(subscription.get("group_id"), bool)
+                and subscription["group_id"] > 0
+            )
+
+            if page >= data.get("pages", 1):
+                break
+            page += 1
+
+    return group_ids
+
+
+def empty_accounts_payload(page: int, page_size: int) -> dict[str, Any]:
+    return {
+        "data": {
+            "items": [],
+            "total": 0,
+            "page": page,
+            "page_size": page_size,
+            "pages": 1,
+        },
+    }
+
+
 def filter_and_paginate_accounts(
         payload: dict[str, Any],
+        group_ids: set[int],
         page: int,
         page_size: int,
 ) -> None:
@@ -99,6 +152,7 @@ def filter_and_paginate_accounts(
         account
         for account in data["items"]
         if account.get("schedulable") is not False
+        and group_ids.intersection(account.get("group_ids", []))
     ]
     total = len(accounts)
     start = (page - 1) * page_size
@@ -133,6 +187,13 @@ async def enrich_accounts_with_usage(payload: dict[str, Any]) -> None:
 def get_accounts_data(payload: dict[str, Any]) -> dict[str, Any]:
     data = payload.get("data")
     return data if isinstance(data, dict) else payload
+
+
+def get_subscriptions_data(payload: dict[str, Any]) -> dict[str, Any]:
+    data = payload.get("data")
+    if not isinstance(data, dict) or not isinstance(data.get("items"), list):
+        raise HTTPException(status_code=502, detail="Sub2API 返回的订阅列表格式无效")
+    return data
 
 
 def sanitize_accounts_payload(payload: dict[str, Any]) -> dict[str, Any]:
