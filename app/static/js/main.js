@@ -185,8 +185,6 @@ function syncUrlParams() {
   const params = new URLSearchParams(window.location.search);
   const accountParams = getQueryParams();
 
-  params.delete("access_key");
-  params.delete("group");
   for (const key of ["page", "page_size", ...filterKeys]) {
     if (accountParams.has(key)) {
       params.set(key, accountParams.get(key));

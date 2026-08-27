@@ -27,9 +27,8 @@ AUTO_RESET_LOCK = asyncio.Lock()
 UPSTREAM_PAGE_SIZE = 100
 
 
-@router.get("/accounts")
+@router.get("/accounts", dependencies=[Depends(verify_api_user)])
 async def list_accounts(
-        user: Annotated[dict[str, Any], Depends(verify_api_user)],
         page: Annotated[int, Query(ge=1)] = 1,
         page_size: Annotated[int, Query(ge=1, le=100)] = 20,
         platform: str | None = None,
@@ -37,10 +36,6 @@ async def list_accounts(
         status: str | None = None,
         search: str | None = None,
 ):
-    group_ids = get_user_group_ids(user)
-    if not group_ids:
-        return empty_accounts_payload(page, page_size)
-
     params = {
         "platform": platform,
         "type": account_type,
@@ -51,7 +46,7 @@ async def list_accounts(
     clean_params = {key: value for key, value in params.items() if value not in (None, "")}
 
     payload = await list_all_accounts(clean_params)
-    filter_and_paginate_accounts(payload, group_ids, page, page_size)
+    filter_and_paginate_accounts(payload, page, page_size)
     await enrich_accounts_with_usage(payload)
     return sanitize_accounts_payload(payload)
 
@@ -94,35 +89,8 @@ async def list_all_accounts(params: dict[str, Any]) -> dict[str, Any]:
         return first_payload
 
 
-def get_user_group_ids(user: dict[str, Any]) -> set[int]:
-    allowed_groups = user.get("allowed_groups")
-    if allowed_groups is None:
-        return set()
-
-    if not isinstance(allowed_groups, list) or any(
-            not isinstance(group_id, int) or isinstance(group_id, bool) or group_id <= 0
-            for group_id in allowed_groups
-    ):
-        raise HTTPException(status_code=502, detail="Sub2API 返回的用户分组格式无效")
-
-    return set(allowed_groups)
-
-
-def empty_accounts_payload(page: int, page_size: int) -> dict[str, Any]:
-    return {
-        "data": {
-            "items": [],
-            "total": 0,
-            "page": page,
-            "page_size": page_size,
-            "pages": 1,
-        },
-    }
-
-
 def filter_and_paginate_accounts(
         payload: dict[str, Any],
-        group_ids: set[int],
         page: int,
         page_size: int,
 ) -> None:
@@ -131,7 +99,6 @@ def filter_and_paginate_accounts(
         account
         for account in data["items"]
         if account.get("schedulable") is not False
-        and group_ids.intersection(account.get("group_ids", []))
     ]
     total = len(accounts)
     start = (page - 1) * page_size

@@ -35,8 +35,8 @@ uv run python main.py
 http://127.0.0.1:8000/accounts?user_id=3&token=your-user-token
 ```
 
-页面会通过 Sub2API 校验用户 Token。仅启用状态的用户可以访问，并且只会
-展示该用户 `allowed_groups` 中分组所属的账号。
+页面会校验 Sub2API 用户 Token。仅启用状态的用户可以访问，
+验证通过后展示全部可调度账号。
 
 ## 自动重置订阅配额
 
