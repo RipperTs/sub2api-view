@@ -16,7 +16,6 @@ uv sync
 APP_HOST=127.0.0.1
 APP_PORT=8000
 APP_RELOAD=true
-VIEW_ACCESS_KEY=your-view-access-key
 SUB2API_BASE_URL=http://127.0.0.1:8080
 SUB2API_ADMIN_KEY=your-admin-api-key
 ```
@@ -30,8 +29,11 @@ uv run python main.py
 浏览器访问：
 
 ```text
-http://127.0.0.1:8000/accounts?access_key=your-view-access-key
+http://127.0.0.1:8000/accounts?user_id=3&token=your-user-token
 ```
+
+页面会通过 Sub2API 校验用户 Token。仅启用状态的用户可以访问，并且只会
+展示该用户 `allowed_groups` 中分组所属的账号。
 
 ## 自动重置订阅配额
 
@@ -40,10 +42,12 @@ http://127.0.0.1:8000/accounts?access_key=your-view-access-key
 
 ```bash
 curl -X POST \
-  "http://127.0.0.1:8000/api/subscriptions/auto-reset?access_key=your-view-access-key"
+  "http://127.0.0.1:8000/api/subscriptions/auto-reset?user_id=3" \
+  -H "Authorization: Bearer your-admin-user-token"
 ```
 
-接口通过 `SUB2API_ADMIN_KEY` 调用 Sub2API 管理员 API。重复调用是安全的：已经在
+该接口仅允许 Sub2API 管理员用户调用，并通过 `SUB2API_ADMIN_KEY` 调用
+Sub2API 管理员 API。重复调用是安全的：已经在
 当前 7 天窗口内重置过的订阅会被跳过。响应中会返回检查数量、重置数量以及失败明细，
 单个账号或订阅失败不会中断其他数据的处理。
 
@@ -59,7 +63,6 @@ docker build -t sub2api-view .
 
 ```bash
 docker run --rm -p 8000:8000 \
-  -e VIEW_ACCESS_KEY=your-view-access-key \
   -e SUB2API_BASE_URL=http://host.docker.internal:8080 \
   -e SUB2API_ADMIN_KEY=your-admin-api-key \
   sub2api-view

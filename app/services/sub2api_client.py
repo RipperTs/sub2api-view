@@ -24,6 +24,25 @@ class Sub2ApiClient:
     async def list_accounts(self, params: dict[str, Any]) -> dict[str, Any]:
         return await self._request("GET", "/api/v1/admin/accounts", params=params)
 
+    async def get_current_user(
+        self,
+        token: str,
+        *,
+        client_ip: str | None = None,
+        user_agent: str | None = None,
+    ) -> dict[str, Any]:
+        headers = {"Authorization": f"Bearer {token}"}
+        if client_ip:
+            headers["X-Forwarded-For"] = client_ip
+        if user_agent:
+            headers["User-Agent"] = user_agent
+
+        return await self._request(
+            "GET",
+            "/api/v1/auth/me",
+            auth_headers=headers,
+        )
+
     async def get_account_usage(
         self,
         account_id: int,
@@ -51,14 +70,16 @@ class Sub2ApiClient:
         self,
         method: str,
         path: str,
+        auth_headers: dict[str, str] | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        self._verify_config()
-
-        headers = {
-            "Accept": "application/json",
-            "x-api-key": self.admin_key,
-        }
+        headers = {"Accept": "application/json"}
+        if auth_headers is None:
+            self._verify_config()
+            headers["x-api-key"] = self.admin_key
+        else:
+            self._verify_base_url()
+            headers.update(auth_headers)
 
         try:
             if self.http_client is not None:
@@ -99,5 +120,10 @@ class Sub2ApiClient:
         return str(data)
 
     def _verify_config(self) -> None:
-        if not self.base_url or not self.admin_key:
+        self._verify_base_url()
+        if not self.admin_key:
             raise HTTPException(status_code=500, detail="Sub2API 环境配置缺失")
+
+    def _verify_base_url(self) -> None:
+        if not self.base_url:
+            raise HTTPException(status_code=500, detail="SUB2API_BASE_URL 未配置")

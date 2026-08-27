@@ -3,13 +3,15 @@ const state = {
   pageSize: 20,
   total: 0,
   filters: {},
+  userId: "",
+  token: "",
 };
 
 const filtersForm = document.querySelector("#account-filters");
 const refreshButton = document.querySelector("#refresh-button");
 const statusLine = document.querySelector("#status-line");
 const accountsBody = document.querySelector("#accounts-body");
-const filterKeys = ["access_key", "platform", "type", "status", "group", "search"];
+const filterKeys = ["platform", "type", "status", "search"];
 
 function getValue(account, keys, fallback = "-") {
   for (const key of keys) {
@@ -131,6 +133,7 @@ function getQueryParams() {
   const params = new URLSearchParams({
     page: String(state.page),
     page_size: String(state.pageSize),
+    user_id: state.userId,
   });
 
   for (const [key, value] of Object.entries(state.filters)) {
@@ -159,6 +162,9 @@ function initStateFromUrl() {
   const page = Number(params.get("page"));
   const pageSize = Number(params.get("page_size"));
 
+  state.userId = params.get("user_id") || "";
+  state.token = params.get("token") || "";
+
   if (Number.isInteger(page) && page > 0) {
     state.page = page;
   }
@@ -176,7 +182,19 @@ function initStateFromUrl() {
 }
 
 function syncUrlParams() {
-  const params = getQueryParams();
+  const params = new URLSearchParams(window.location.search);
+  const accountParams = getQueryParams();
+
+  params.delete("access_key");
+  params.delete("group");
+  for (const key of ["page", "page_size", ...filterKeys]) {
+    if (accountParams.has(key)) {
+      params.set(key, accountParams.get(key));
+    } else {
+      params.delete(key);
+    }
+  }
+
   const url = `${window.location.pathname}?${params.toString()}`;
   window.history.replaceState(null, "", url);
 }
@@ -373,7 +391,11 @@ async function loadAccounts() {
   statusLine.textContent = "正在加载账号信息...";
 
   try {
-    const response = await fetch(`/api/accounts?${getQueryParams().toString()}`);
+    const response = await fetch(`/api/accounts?${getQueryParams().toString()}`, {
+      headers: {
+        Authorization: `Bearer ${state.token}`,
+      },
+    });
     const payload = await response.json();
 
     if (!response.ok) {
@@ -383,45 +405,12 @@ async function loadAccounts() {
     const { items, total } = normalizePayload(payload);
     state.total = total;
 
-    const accounts = await enrichAccountsWithUsage(items);
-    renderAccounts(accounts);
+    renderAccounts(items);
     statusLine.textContent = "账号信息已更新";
   } catch (error) {
     accountsBody.innerHTML = '<div class="empty-state">加载失败</div>';
     statusLine.textContent = error.message;
   }
-}
-
-async function enrichAccountsWithUsage(accounts) {
-  const accessKey = state.filters.access_key;
-  if (!accessKey || !accounts.length) {
-    return accounts;
-  }
-
-  const results = await Promise.allSettled(
-    accounts.map(async (account) => {
-      const accountId = getValue(account, ["id", "account_id"], "");
-      if (!accountId) {
-        return account;
-      }
-
-      const params = new URLSearchParams({ access_key: accessKey });
-      const response = await fetch(`/api/accounts/${accountId}/usage?${params.toString()}`);
-      if (!response.ok) {
-        return account;
-      }
-
-      const payload = await response.json();
-      return {
-        ...account,
-        usage: payload.data || payload,
-      };
-    }),
-  );
-
-  return results.map((result, index) => (
-    result.status === "fulfilled" ? result.value : accounts[index]
-  ));
 }
 
 function escapeHtml(value) {

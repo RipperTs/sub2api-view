@@ -2,13 +2,13 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-from app.core.security import verify_access_key
+from app.core.security import verify_page_user
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
 
 
-@router.get("/", response_class=HTMLResponse, dependencies=[Depends(verify_access_key)])
+@router.get("/", response_class=HTMLResponse, dependencies=[Depends(verify_page_user)])
 async def index(request: Request):
     return templates.TemplateResponse(
         request,
@@ -19,7 +19,7 @@ async def index(request: Request):
     )
 
 
-@router.get("/accounts", response_class=HTMLResponse, dependencies=[Depends(verify_access_key)])
+@router.get("/accounts", response_class=HTMLResponse, dependencies=[Depends(verify_page_user)])
 async def accounts(request: Request):
     return templates.TemplateResponse(
         request,

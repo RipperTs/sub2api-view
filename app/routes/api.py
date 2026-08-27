@@ -5,11 +5,11 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.core.security import verify_access_key
+from app.core.security import verify_admin_user, verify_api_user
 from app.services.sub2api_client import Sub2ApiClient
 from app.services.subscription_quota_reset import SubscriptionQuotaResetService
 
-router = APIRouter(prefix="/api", dependencies=[Depends(verify_access_key)])
+router = APIRouter(prefix="/api")
 
 SENSITIVE_ACCOUNT_KEYS = {
     "credentials",
@@ -29,15 +29,18 @@ UPSTREAM_PAGE_SIZE = 100
 
 @router.get("/accounts")
 async def list_accounts(
+        user: Annotated[dict[str, Any], Depends(verify_api_user)],
         page: Annotated[int, Query(ge=1)] = 1,
         page_size: Annotated[int, Query(ge=1, le=100)] = 20,
         platform: str | None = None,
         account_type: str | None = Query(default=None, alias="type"),
         status: str | None = None,
-        group: str | None = None,
         search: str | None = None,
 ):
-    group_ids = parse_group_ids(group)
+    group_ids = get_user_group_ids(user)
+    if not group_ids:
+        return empty_accounts_payload(page, page_size)
+
     params = {
         "platform": platform,
         "type": account_type,
@@ -49,15 +52,14 @@ async def list_accounts(
 
     payload = await list_all_accounts(clean_params)
     filter_and_paginate_accounts(payload, group_ids, page, page_size)
+    await enrich_accounts_with_usage(payload)
     return sanitize_accounts_payload(payload)
 
 
-@router.get("/accounts/{account_id}/usage")
-async def get_account_usage(account_id: int):
-    return await Sub2ApiClient().get_account_usage(account_id)
-
-
-@router.post("/subscriptions/auto-reset")
+@router.post(
+    "/subscriptions/auto-reset",
+    dependencies=[Depends(verify_admin_user)],
+)
 async def auto_reset_subscription_quotas():
     if AUTO_RESET_LOCK.locked():
         raise HTTPException(status_code=409, detail="自动重置检测正在执行")
@@ -92,19 +94,30 @@ async def list_all_accounts(params: dict[str, Any]) -> dict[str, Any]:
         return first_payload
 
 
-def parse_group_ids(group: str | None) -> set[int]:
-    if group is None or not group.strip():
+def get_user_group_ids(user: dict[str, Any]) -> set[int]:
+    allowed_groups = user.get("allowed_groups")
+    if allowed_groups is None:
         return set()
 
-    try:
-        group_ids = {int(value.strip()) for value in group.split(",")}
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail="group 必须是逗号分隔的分组 ID") from exc
+    if not isinstance(allowed_groups, list) or any(
+            not isinstance(group_id, int) or isinstance(group_id, bool) or group_id <= 0
+            for group_id in allowed_groups
+    ):
+        raise HTTPException(status_code=502, detail="Sub2API 返回的用户分组格式无效")
 
-    if not group_ids or any(group_id <= 0 for group_id in group_ids):
-        raise HTTPException(status_code=422, detail="group 必须是逗号分隔的正整数分组 ID")
+    return set(allowed_groups)
 
-    return group_ids
+
+def empty_accounts_payload(page: int, page_size: int) -> dict[str, Any]:
+    return {
+        "data": {
+            "items": [],
+            "total": 0,
+            "page": page,
+            "page_size": page_size,
+            "pages": 1,
+        },
+    }
 
 
 def filter_and_paginate_accounts(
@@ -118,10 +131,7 @@ def filter_and_paginate_accounts(
         account
         for account in data["items"]
         if account.get("schedulable") is not False
-        and (
-            not group_ids
-            or group_ids.intersection(account.get("group_ids", []))
-        )
+        and group_ids.intersection(account.get("group_ids", []))
     ]
     total = len(accounts)
     start = (page - 1) * page_size
@@ -131,6 +141,26 @@ def filter_and_paginate_accounts(
     data["page"] = page
     data["page_size"] = page_size
     data["pages"] = max(1, (total + page_size - 1) // page_size)
+
+
+async def enrich_accounts_with_usage(payload: dict[str, Any]) -> None:
+    accounts = get_accounts_data(payload)["items"]
+    if not accounts:
+        return
+
+    account_ids = [account.get("id") for account in accounts]
+
+    async with Sub2ApiClient() as client:
+        results = await asyncio.gather(*(
+            client.get_account_usage(account_id)
+            for account_id in account_ids
+        ))
+
+    for account, result in zip(accounts, results):
+        usage = result.get("data")
+        if not isinstance(usage, dict):
+            raise HTTPException(status_code=502, detail="Sub2API 返回的账号用量格式无效")
+        account["usage"] = usage
 
 
 def get_accounts_data(payload: dict[str, Any]) -> dict[str, Any]:
